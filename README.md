@@ -61,5 +61,6 @@ No build step and no framework: plain ES modules.
 | `js/play.js`, `js/ui/*` | Play screen, grid, clue lists, keyboard, word finder |
 | `js/storage.js` | localStorage with an in-memory fallback |
 | `sw.js` | Offline cache |
+| `version.json`, `js/version.js` | Version number and release time, shown on the home screen (written by `node tools/stamp.mjs`) |
 
 `samples/sample-skeleton.json` is an invented 15 by 11 puzzle in the Sunday Express format (made-up clues, no letter counts, letters that do not form real crossing answers), there to try the features. `node tools/build-sample.mjs` rebuilds it.

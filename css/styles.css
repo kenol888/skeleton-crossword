@@ -151,6 +151,9 @@ button { touch-action: manipulation; }
 .hero { display: flex; gap: 20px; align-items: center; }
 .hero h1 { font: 600 clamp(32px, 6vw, 48px)/1.05 var(--f-display); letter-spacing: -0.01em; }
 .tag { color: var(--ink-soft); font-size: 17px; margin: 6px 0 0; }
+.version { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.ver-ok { color: var(--ok); font-weight: 600; }
+.ver-new { color: var(--bad); font-weight: 600; }
 .logo-grid {
   flex: none; width: 76px; height: 76px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;
   padding: 2px; background: var(--grid-line); border-radius: 4px;

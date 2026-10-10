@@ -4,6 +4,7 @@ import { loadIndex, loadPuzzleRaw, savePuzzle, deletePuzzle, storageAvailable } 
 import { fromJSON, toJSON, newId } from './model.js';
 import { openPlay, closePlay } from './play.js';
 import { startImport } from './importFlow.js';
+import { VERSION, BUILT } from './version.js';
 
 const screens = {
   library: $('#screen-library'),
@@ -181,6 +182,60 @@ function card(entry) {
   );
 }
 
+// ------------------------------------------------------------------ version
+// Shows which version this copy is and, when online, whether a newer one has been published.
+let latest = null; // { version, built } from the server, once known
+let checking = false;
+
+const fmtBuilt = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+async function checkForUpdate() {
+  if (checking) return;
+  checking = true;
+  try {
+    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) latest = await res.json();
+  } catch (e) {
+    /* offline: just show the version we have */
+  } finally {
+    checking = false;
+    const el = document.getElementById('version-line');
+    if (el) fillVersionLine(el);
+  }
+}
+
+async function reloadLatest() {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch (e) { /* carry on and reload anyway */ }
+  location.reload();
+}
+
+function fillVersionLine(el) {
+  el.textContent = '';
+  el.append(h('span', null, `Version ${VERSION} \u00B7 ${fmtBuilt(BUILT)}`));
+  if (latest && latest.version > VERSION) {
+    el.append(
+      h('span', { class: 'ver-new' }, `Version ${latest.version} is available`),
+      h('button', { class: 'btn small primary', type: 'button', onclick: reloadLatest }, 'Update now')
+    );
+  } else if (latest) {
+    el.append(h('span', { class: 'ver-ok' }, 'Latest version'));
+  } else if (checking) {
+    el.append(h('span', { class: 'muted' }, 'Checking for updates\u2026'));
+  }
+}
+
+function versionLine() {
+  const el = h('p', { class: 'version', id: 'version-line' });
+  fillVersionLine(el);
+  checkForUpdate();
+  return el;
+}
+
 function renderLibrary() {
   const entries = loadIndex().sort((a, b) => b.updatedAt - a.updatedAt);
   const root = screens.library;
@@ -194,7 +249,7 @@ function renderLibrary() {
         'header',
         { class: 'hero' },
         miniGrid,
-        h('div', null, h('h1', null, 'Skeleton Crossword'), h('p', { class: 'tag' }, 'Work out the grid, then fill it in.'))
+        h('div', null, h('h1', null, 'Skeleton Crossword'), h('p', { class: 'tag' }, 'Work out the grid, then fill it in.'), versionLine())
       ),
       !storageAvailable() ? h('p', { class: 'notice' }, "This browser isn't keeping saved data, so puzzles will be lost when you close the page. Export puzzles to keep them.") : null,
       h(

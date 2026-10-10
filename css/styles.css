@@ -28,8 +28,7 @@
   --f-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --f-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-theme="dark"] {
     --bg: #11151b;
     --surface: #1a2029;
     --surface-2: #252d39;
@@ -51,12 +50,11 @@
     --mark-ink: #08121f;
     --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
-  }
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-html { color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+html { color-scheme: light; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   background: var(--bg);
@@ -147,7 +145,7 @@ button { touch-action: manipulation; }
 .switch-row input { width: 26px; height: 26px; accent-color: var(--accent); flex: none; }
 
 /* ---------- home ---------- */
-.home { position: relative; isolation: isolate; max-width: 1180px; margin: 0 auto; padding: clamp(20px, 4vw, 44px) clamp(16px, 4vw, 48px) 64px; display: grid; gap: clamp(28px, 5vw, 60px); align-content: start; }
+.home { position: relative; isolation: isolate; max-width: 1180px; margin: 0 auto; padding: clamp(64px, 8vw, 84px) clamp(16px, 4vw, 48px) 64px; display: grid; gap: clamp(28px, 5vw, 60px); align-content: start; }
 /* a faint crossword lattice behind everything, fading out toward the corners */
 .home::before {
   content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.4;
@@ -349,15 +347,12 @@ button { touch-action: manipulation; }
 .cell.printed-num .num { color: var(--given-ink); font-weight: 700; }
 .cell.user-num .num { color: var(--accent); font-weight: 700; }
 .cell.sel.user-num .num, .cell.sel.printed-num .num { color: var(--sel-ink); }
-.cell.flash { animation: flash 1.2s ease-out; }
-@keyframes flash { 0% { box-shadow: inset 0 0 0 4px var(--sel); } 100% { box-shadow: inset 0 0 0 4px transparent; } }
 
 .clue-bar { flex: none; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; min-height: 66px; display: grid; gap: 2px; align-content: center; }
 .cb-main { font-size: 17px; line-height: 1.3; }
 .cb-num { font-family: var(--f-display); font-weight: 600; font-size: 19px; }
 .cb-pattern { font: 500 16px var(--f-mono); letter-spacing: 0.22em; color: var(--ink-soft); overflow-wrap: anywhere; }
 .cb-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
-.cb-opts { color: var(--accent); font-size: 14px; font-weight: 600; }
 .btn.small { min-height: 36px; padding: 0 10px; font-size: 13px; }
 .cb-foot .grow { flex: 1; }
 .kb-head { display: flex; justify-content: flex-end; }
@@ -388,7 +383,7 @@ button { touch-action: manipulation; }
 .kb { flex: none; display: grid; gap: 6px; }
 .kb[hidden] { display: none; }
 .kb-row { display: flex; gap: 5px; justify-content: center; }
-.kb-head + .kb-row + .kb-row { padding: 0 3%; }
+.kb-letters .kb-row:nth-child(2) { padding: 0 3%; }
 .key {
   flex: 1; min-width: 0; min-height: 46px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface);
   font: 600 18px var(--f-mono); cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;
@@ -424,3 +419,29 @@ button { touch-action: manipulation; }
 
 /* waiting for the player to tap the square where a clue starts */
 .grid.placing { cursor: crosshair; box-shadow: 0 0 0 3px var(--accent); }
+
+/* ---------- toolbar icons and the square tools ---------- */
+.ico { display: inline-flex; flex: none; }
+.ibtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; padding: 0 10px; }
+.ibtn .ilabel { font-size: 15px; }
+@media (max-width: 640px) { .ibtn .ilabel { display: none; } }
+.sq-tools { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sq-tool {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 8px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 15px var(--f-ui); cursor: pointer;
+}
+.sq-tool:active { background: var(--surface-2); }
+.sq-tool.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sq-tool:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 460px) { .sq-tool span:last-child { font-size: 13px; } }
+
+.kb-letters, .kb-numbers { display: grid; gap: 6px; }
+.kb-letters[hidden], .kb-numbers[hidden], .kb-row[hidden] { display: none; }
+.kb-numbers { width: 100%; max-width: 440px; margin: 0 auto; }
+.kb-numbers .key { min-height: 56px; font-size: 22px; }
+
+.home-gear {
+  position: absolute; top: clamp(14px, 3vw, 28px); right: clamp(16px, 4vw, 48px); z-index: 2; width: 48px; height: 48px; border-radius: 50%;
+  display: grid; place-items: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft); cursor: pointer;
+}
+.home-gear:active { background: var(--surface-2); }

@@ -5,6 +5,8 @@ import { fromJSON, newId } from './model.js';
 import { openPlay, closePlay } from './play.js';
 import { startImport } from './importFlow.js';
 import { heroArt, thumbSvg } from './homeArt.js';
+import { icon } from './ui/icons.js';
+import { applyTheme, currentTheme, openAppSettings } from './theme.js';
 import { VERSION, BUILT } from './version.js';
 
 const screens = {
@@ -224,10 +226,12 @@ function renderLibrary() {
   root.textContent = '';
   const importBtn = h('button', { class: 'btn primary xl', type: 'button', onclick: importFromImage });
   importBtn.innerHTML = IMAGE_ICON + '<span>Import from image</span>';
+  const gear = h('button', { class: 'home-gear', type: 'button', 'aria-label': 'Settings', title: 'Settings', onclick: openAppSettings }, icon('settings', 24));
   root.append(
     h(
       'div',
       { class: 'home' },
+      gear,
       h(
         'section',
         { class: 'hero' },
@@ -253,6 +257,7 @@ function renderLibrary() {
 }
 
 // ------------------------------------------------------------------ boot
+applyTheme(currentTheme());
 renderLibrary();
 show('library');
 

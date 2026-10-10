@@ -110,6 +110,7 @@ export function deletePuzzle(id) {
 
 const DEFAULT_SETTINGS = {
   layoutFeedback: false,
+  theme: 'light', // 'light' (default) or 'dark', chosen in Settings; it does not follow the device
   skipFilled: false,
   autoMirror: true, // placing a black square also places its mirror squares
   moveSolvedDown: false,

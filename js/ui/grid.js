@@ -55,7 +55,7 @@ export function createGridView(cb) {
   window.addEventListener('pointercancel', end);
 
   /**
-   * ctx: { puzzle, numbering, sel, wordCells:Set, mirrors:Set, warn:Set, flash:Set }
+   * ctx: { puzzle, numbering, sel, wordCells:Set, mirrors:Set, warn:Set }
    */
   function update(ctx) {
     const { puzzle } = ctx;
@@ -69,7 +69,6 @@ export function createGridView(cb) {
       else if (ctx.wordCells.has(i)) cls += ' word';
       if (ctx.mirrors.has(i) && i !== ctx.sel) cls += ' mirror';
       if (ctx.warn.has(i)) cls += ' warn';
-      if (ctx.flash.has(i)) cls += ' flash';
       if (cell.givenLetter) cls += ' given';
       else if (cell.letter && cell.pencil) cls += ' pencil';
       let numText = '';

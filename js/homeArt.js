@@ -19,10 +19,10 @@ export const SKULL_ROWS = [
 ];
 /** Words typed across white squares of the skull, and the square the cursor waits in. */
 export const SKULL_WORDS = [
-  { row: 2, col: 3, text: 'CROSSWORD' },
-  { row: 3, col: 3, text: 'SKELETON' },
+  { row: 2, col: 3, text: 'SKELETON' },
+  { row: 3, col: 3, text: 'CROSSWORD' },
 ];
-export const SKULL_CURSOR = { row: 3, col: 11 };
+export const SKULL_CURSOR = { row: 3, col: 12 };
 /** The eye sockets glow like the scanner that reads a page. */
 export const SKULL_EYES = [
   [4, 4], [4, 5], [4, 6], [5, 4], [5, 5], [5, 6],

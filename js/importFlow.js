@@ -138,8 +138,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         h('p', null, 'Photograph the whole page flat and in good light, or use a screenshot or PDF of the e-edition.'),
         input,
         zone,
-        status,
-        h('p', { class: 'muted' }, 'No picture to hand? ', h('button', { class: 'link', type: 'button', onclick: onCancel }, 'Go back'), ' and choose Blank puzzle.')
+        status
       )
     );
   }

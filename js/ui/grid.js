@@ -58,11 +58,10 @@ export function createGridView(cb) {
    * ctx: { puzzle, numbering, sel, wordCells:Set, mirrors:Set, warn:Set, flash:Set }
    */
   function update(ctx) {
-    const { puzzle, numbering } = ctx;
+    const { puzzle } = ctx;
     if (dims !== puzzle.rows + 'x' + puzzle.cols) build(puzzle.rows, puzzle.cols);
     puzzle.cells.forEach((cell, i) => {
       const el2 = cells[i];
-      const number = numbering.numbers[i];
       let cls = 'cell';
       if (cell.block) cls += ' block';
       if (cell.givenBlock) cls += ' locked';
@@ -75,12 +74,15 @@ export function createGridView(cb) {
       else if (cell.letter && cell.pencil) cls += ' pencil';
       let numText = '';
       if (!cell.block) {
-        // a number printed in the puzzle is the truth: show it even where the layout so far
-        // would number the square differently
+        // Only the numbers printed in the puzzle and the ones the player typed. Nothing is
+        // numbered automatically: working out where the numbers go is part of the puzzle.
         if (cell.givenNumber) {
           numText = String(cell.givenNumber);
-          cls += number === cell.givenNumber ? ' printed-num' : ' hint-num';
-        } else if (number) numText = String(number);
+          cls += ' printed-num';
+        } else if (cell.userNumber) {
+          numText = String(cell.userNumber);
+          cls += ' user-num';
+        }
       }
       if (el2.className !== cls) el2.className = cls;
       if (el2._num.textContent !== numText) el2._num.textContent = numText;

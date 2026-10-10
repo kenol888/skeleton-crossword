@@ -111,6 +111,7 @@ export function deletePuzzle(id) {
 const DEFAULT_SETTINGS = {
   layoutFeedback: false,
   skipFilled: false,
+  autoMirror: true, // placing a black square also places its mirror squares
   moveSolvedDown: false,
   showTimer: true,
   keyboard: 'auto', // 'auto' shows it when you tap a square, 'always', or 'never'

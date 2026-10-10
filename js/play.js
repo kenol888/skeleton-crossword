@@ -1,6 +1,6 @@
 // Play screen controller: owns the open puzzle, input, history, layout tools and autosave.
 import { h, toast, clearToast, dialog, actionSheet, confirmDialog, inputDialog, modalOpen } from './ui/dom.js';
-import { computeNumbering, matchClues, symmetryTargets, parseEnumeration, SYMMETRY } from './model.js';
+import { computeNumbering, matchClues, linkClues, symmetryTargets, parseEnumeration, SYMMETRY } from './model.js';
 import { savePuzzle, loadSettings, saveSettings } from './storage.js';
 import { optionsFromPuzzle } from './solver.js';
 import { runSolver } from './solverClient.js';
@@ -51,12 +51,15 @@ export function openPlay(puzzle, { container, onExit }) {
     busy: false,
     lengthHints: null,
     kbOpen: false,
+    placing: null, // { dir, number }: waiting for the player to tap the square where that clue starts
+    fit: null,
   };
 
   // ---------------------------------------------------------------- derived data
   function recompute() {
-    S.numbering = computeNumbering(p);
-    S.matches = matchClues(p, S.numbering);
+    S.numbering = computeNumbering(p); // only used for the runs of white squares and for judging layouts
+    S.matches = linkClues(p, S.numbering); // what the player sees: clues linked by the numbers they placed
+    S.fit = matchClues(p, S.numbering); // how well the drawn layout would fit the clues (opt-in feedback)
     S.slotAt = { across: new Map(), down: new Map() };
     for (const slot of S.numbering.slots) for (const i of slot.cells) S.slotAt[slot.dir].set(i, slot);
   }
@@ -88,7 +91,7 @@ export function openPlay(puzzle, { container, onExit }) {
     if (!rec.length) return false;
     if (S.batch) S.batch.push(...rec);
     else pushHistory(rec);
-    changed(rec.some((r) => 'block' in r.after));
+    changed(rec.some((r) => 'block' in r.after || 'userNumber' in r.after));
     return true;
   }
   function pushHistory(rec) {
@@ -229,7 +232,8 @@ export function openPlay(puzzle, { container, onExit }) {
   }
   function setMode(m) {
     S.mode = m;
-    if (m === 'blocks') S.kbOpen = false;
+    S.placing = null;
+    if (m !== 'letters') S.kbOpen = false;
     render();
   }
 
@@ -237,7 +241,7 @@ export function openPlay(puzzle, { container, onExit }) {
   function paint(i) {
     if (S.paintValue === null) return;
     const targets = [i];
-    targets.push(...mirrorsOf(i));
+    if (S.settings.autoMirror) targets.push(...mirrorsOf(i));
     const changes = [];
     for (const t of targets) {
       const c = p.cells[t];
@@ -248,6 +252,10 @@ export function openPlay(puzzle, { container, onExit }) {
     commit(changes);
   }
   function onGridDown(i) {
+    if (S.mode === 'numbers') {
+      numberSquare(i);
+      return;
+    }
     if (S.mode === 'blocks') {
       const c = p.cells[i];
       S.paintValue = c.givenBlock ? null : !c.block;
@@ -261,6 +269,10 @@ export function openPlay(puzzle, { container, onExit }) {
       return;
     }
     if (p.cells[i].block) return;
+    if (S.placing) {
+      placeNumber(i, S.placing.number);
+      return;
+    }
     if (S.settings.keyboard === 'auto') S.kbOpen = true; // going to type: bring up the keyboard
     if (i === S.sel) toggleDir();
     else select(i);
@@ -280,12 +292,22 @@ export function openPlay(puzzle, { container, onExit }) {
   function selectClue(dir, number) {
     const entry = S.matches[dir].find((e) => e.clue.number === number);
     if (!entry) return;
+    S.placing = null;
+    if (entry.status === 'missing') {
+      // nothing is numbered for the player: ask where this clue starts
+      S.placing = { dir, number };
+      if (S.mode !== 'letters') S.mode = 'letters';
+      render();
+      return;
+    }
     if (!entry.slot) {
-      toast(`Place the black squares for ${number} ${DIR_NAME[dir]} first.`);
+      S.sel = entry.at;
+      toast(`${number} is not at the start of an ${DIR_NAME[dir]} word. Move the number or change the black squares.`, 4500);
+      render();
       return;
     }
     gotoSlot(entry.slot);
-    if (S.mode === 'blocks') S.mode = 'letters';
+    if (S.mode !== 'letters') S.mode = 'letters';
     render();
   }
   function toggleDone(dir, number) {
@@ -294,6 +316,49 @@ export function openPlay(puzzle, { container, onExit }) {
     entry.clue.manualDone = !entry.clue.manualDone;
     render();
     scheduleSave();
+  }
+
+  // numbers the player places: the app never numbers the grid for them
+  async function numberSquare(i) {
+    const c = p.cells[i];
+    if (c.block) {
+      toast('Black squares have no number.');
+      return;
+    }
+    if (c.givenNumber) {
+      toast(`${c.givenNumber} is printed in the puzzle, so it stays.`);
+      return;
+    }
+    S.sel = i;
+    render();
+    const v = await inputDialog('Number for this square', 'The clue number that starts here. Leave it empty to remove the number.', c.userNumber ? String(c.userNumber) : '', { inputmode: 'numeric', maxlength: 3, okLabel: 'Set number' });
+    if (v === null) return;
+    const t = v.trim();
+    if (t === '') {
+      commit([{ i, patch: { userNumber: null } }]);
+      return;
+    }
+    if (!/^\d{1,3}$/.test(t) || +t < 1) {
+      toast('Type a clue number, such as 12.');
+      return;
+    }
+    placeNumber(i, +t);
+  }
+  function placeNumber(i, n) {
+    S.placing = null;
+    const printed = p.cells.findIndex((c, j) => j !== i && c.givenNumber === n);
+    if (printed >= 0 || p.cells[i].givenNumber) {
+      toast(`${n} is already printed in the grid.`, 3500);
+      render();
+      return;
+    }
+    const changes = [];
+    p.cells.forEach((c, j) => {
+      if (j !== i && c.userNumber === n) changes.push({ i: j, patch: { userNumber: null } }); // a number lives in one square
+    });
+    changes.push({ i, patch: { userNumber: n } });
+    S.sel = i;
+    if (!commit(changes)) render();
   }
 
   // ---------------------------------------------------------------- hardware keyboard
@@ -329,16 +394,18 @@ export function openPlay(puzzle, { container, onExit }) {
   async function solveWith(withUserSquares) {
     const extraBlocks = [];
     const extraWhites = [];
+    const extraNumbers = {};
     if (withUserSquares) {
       p.cells.forEach((c, i) => {
         if (c.block && !c.givenBlock) extraBlocks.push(i);
         if (c.letter && !c.pencil && !c.block && !c.givenLetter) extraWhites.push(i);
+        if (c.userNumber && !c.block) extraNumbers[i] = c.userNumber;
       });
     }
     S.busy = true;
     toast('Working it out\u2026', 8000);
     try {
-      return await runSolver(optionsFromPuzzle(p, { extraBlocks, extraWhites, maxSolutions: 3000, nodeCap: 4000000 }));
+      return await runSolver(optionsFromPuzzle(p, { extraBlocks, extraWhites, extraNumbers, maxSolutions: 3000, nodeCap: 4000000 }));
     } finally {
       S.busy = false;
       clearToast();
@@ -347,14 +414,14 @@ export function openPlay(puzzle, { container, onExit }) {
   function problemList() {
     const out = [];
     for (const dir of ['across', 'down']) {
-      for (const e of S.matches[dir]) {
+      for (const e of S.fit[dir]) {
         const label = `${e.clue.number} ${DIR_NAME[dir]}`;
         if (e.status === 'length-mismatch') out.push(`${label}: the clue has ${e.clue.length} letters but the grid gives ${e.slot.length}.`);
         else if (e.status === 'missing') out.push(`${label}: no word starts at this number yet.`);
       }
     }
     for (const s of S.numbering.slots) {
-      if (!S.matches.orphanSlots.includes(s)) continue;
+      if (!S.fit.orphanSlots.includes(s)) continue;
       out.push(`${s.number} ${DIR_NAME[s.dir]}: the grid has a word of ${s.length} letters here but no clue.`);
     }
     return out;
@@ -410,13 +477,13 @@ export function openPlay(puzzle, { container, onExit }) {
     let msg;
     let open = [];
     if (res.count === 0 && res.capped) msg = 'There are too many possible layouts to check yet. Place more black squares or add letter counts and try again.';
-    else if (res.count === 0) msg = "Your black squares and letters can't all be right. No layout fits them together with the clue numbers, printed squares and letter counts.";
+    else if (res.count === 0) msg = "Your black squares, numbers and letters can't all be right. No layout fits them together with the clue numbers, printed squares and letter counts.";
     else if (!res.complete) msg = 'Very many layouts still fit. Place more black squares or add letter counts to narrow it down.';
     else if (res.unique) msg = 'Your squares fit exactly one complete layout. Use "Reveal whole layout" to see it.';
     else {
       const ag = agreement(res);
       const placed = ag.blocks.filter((i) => !p.cells[i].block).length;
-      msg = `${res.count} layouts still fit your squares and the clues. ${placed ? `${placed} more black squares are certain (ask for hints).` : 'Every square they share is already in place.'} Adding letter counts for the clues below would settle the rest.`;
+      msg = `${res.count} layouts still fit your squares, numbers and the clues. ${placed ? `${placed} more black squares are certain (ask for hints).` : 'Every square they share is already in place.'} Adding letter counts for the clues below would settle the rest.`;
       S.lengthHints = possibleLengths(res);
       open = [...S.lengthHints].filter(([, set]) => set.size > 1).map(([key, set]) => {
         const [dir, num] = key.split(':');
@@ -453,7 +520,7 @@ export function openPlay(puzzle, { container, onExit }) {
     const dist = (i) => Math.abs(Math.floor(i / C) - Math.floor(S.sel / C)) + Math.abs((i % C) - (S.sel % C));
     cands.sort((a, b) => dist(a) - dist(b));
     const pick = cands[0];
-    const targets = [pick, ...mirrorsOf(pick)].filter((i) => !p.cells[i].block);
+    const targets = [pick, ...(S.settings.autoMirror ? mirrorsOf(pick) : [])].filter((i) => !p.cells[i].block);
     commit(targets.map((i) => ({ i, patch: { block: true, letter: '', pencil: false } })));
     flash(targets);
     S.sel = pick;
@@ -509,7 +576,8 @@ export function openPlay(puzzle, { container, onExit }) {
     actionSheet('Clear', [
       { label: 'Clear letters', hint: 'Keeps black squares and printed letters', run: () => clearCells('letters') },
       { label: 'Clear black squares', hint: 'Keeps letters and printed squares', run: () => clearCells('blocks') },
-      { label: 'Clear everything I added', hint: 'Letters, black squares and clue ticks', run: () => clearCells('all'), danger: true },
+      { label: 'Clear my numbers', hint: 'Keeps the numbers printed in the puzzle', run: () => clearCells('numbers') },
+      { label: 'Clear everything I added', hint: 'Letters, black squares, numbers and clue ticks', run: () => clearCells('all'), danger: true },
     ]);
   }
   function clearCells(what) {
@@ -517,6 +585,7 @@ export function openPlay(puzzle, { container, onExit }) {
     p.cells.forEach((c, i) => {
       if ((what === 'letters' || what === 'all') && c.letter && !c.givenLetter) changes.push({ i, patch: { letter: '', pencil: false } });
       if ((what === 'blocks' || what === 'all') && c.block && !c.givenBlock) changes.push({ i, patch: { block: false } });
+      if ((what === 'numbers' || what === 'all') && c.userNumber) changes.push({ i, patch: { userNumber: null } });
     });
     if (what === 'all') for (const d of ['across', 'down']) for (const c of p.clues[d]) c.manualDone = false;
     if (!commit(changes)) {
@@ -623,6 +692,7 @@ export function openPlay(puzzle, { container, onExit }) {
     const body = h(
       'div',
       { class: 'settings' },
+      row('set-mirror', 'Mirror black squares for me', 'Turn off to place every mirror square yourself. In Squares mode the mirror squares are ringed in blue either way, and a hint then places one square at a time.', () => S.settings.autoMirror, (v) => { S.settings.autoMirror = v; save(); }),
       symRow(),
       row('set-fb', 'Layout feedback', 'Show whether each clue fits the grid. This gives hints about the layout.', () => S.settings.layoutFeedback, (v) => { S.settings.layoutFeedback = v; save(); }),
       row('set-skip', 'Skip filled squares', 'Typing jumps over squares that already have a letter.', () => S.settings.skipFilled, (v) => { S.settings.skipFilled = v; save(); }),
@@ -660,7 +730,6 @@ export function openPlay(puzzle, { container, onExit }) {
   // ---------------------------------------------------------------- completion
   function isComplete() {
     if (!p.clues.across.length && !p.clues.down.length) return false;
-    if (S.matches.orphanSlots.length) return false;
     for (const dir of ['across', 'down']) for (const e of S.matches[dir]) if (e.status !== 'ok') return false;
     return p.cells.every((c) => c.block || (c.letter && !c.pencil));
   }
@@ -691,6 +760,7 @@ export function openPlay(puzzle, { container, onExit }) {
   const titleEl = h('h1', { class: 'play-title' }, p.title);
   const segLetters = h('button', { class: 'seg-btn', type: 'button', onclick: () => setMode('letters') }, 'Letters');
   const segBlocks = h('button', { class: 'seg-btn', type: 'button', onclick: () => setMode('blocks') }, 'Squares');
+  const segNumbers = h('button', { class: 'seg-btn', type: 'button', onclick: () => setMode('numbers') }, 'Numbers');
   const pencilBtn = btn('Pencil', () => { S.pencil = !S.pencil; render(); }, 'quiet toggle');
   const undoBtn = btn('Undo', undo, 'quiet');
   const redoBtn = btn('Redo', redo, 'quiet');
@@ -705,7 +775,7 @@ export function openPlay(puzzle, { container, onExit }) {
       { class: 'play-top' },
       backBtn,
       titleEl,
-      h('div', { class: 'seg', role: 'group', 'aria-label': 'Input mode' }, segLetters, segBlocks),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Input mode' }, segLetters, segBlocks, segNumbers),
       pencilBtn,
       undoBtn,
       redoBtn,
@@ -726,8 +796,8 @@ export function openPlay(puzzle, { container, onExit }) {
     const slot = currentSlot();
     const warn = new Set();
     if (S.settings.layoutFeedback) {
-      for (const dir of ['across', 'down']) for (const e of S.matches[dir]) if (e.status === 'length-mismatch') e.slot.cells.forEach((i) => warn.add(i));
-      for (const s of S.matches.orphanSlots) s.cells.forEach((i) => warn.add(i));
+      for (const dir of ['across', 'down']) for (const e of S.fit[dir]) if (e.status === 'length-mismatch') e.slot.cells.forEach((i) => warn.add(i));
+      for (const s of S.fit.orphanSlots) s.cells.forEach((i) => warn.add(i));
     }
     grid.update({
       puzzle: p,
@@ -739,18 +809,34 @@ export function openPlay(puzzle, { container, onExit }) {
       flash: S.flash,
     });
     grid.el.classList.toggle('blocks-mode', S.mode === 'blocks');
+    grid.el.classList.toggle('placing', !!S.placing);
 
     // current clue bar
     const entry = entryFor(slot);
     clueBar.textContent = '';
-    if (S.mode === 'blocks') {
-      clueBar.append(h('div', { class: 'cb-main' }, h('strong', null, 'Black squares: '), 'tap or drag to add or remove them.' + (symMode() === 'mirror4' ? ' The three mirror squares follow.' : symMode() === 'rotational' ? ' The opposite square follows.' : '')));
+    if (S.placing) {
+      clueBar.append(
+        h(
+          'div',
+          { class: 'cb-main' },
+          h('strong', { class: 'cb-num' }, `${S.placing.number} ${DIR_NAME[S.placing.dir]}`),
+          ' starts where? Tap its square in the grid. ',
+          h('button', { class: 'btn quiet small', type: 'button', onclick: () => { S.placing = null; render(); } }, 'Cancel')
+        )
+      );
+    } else if (S.mode === 'numbers') {
+      clueBar.append(h('div', { class: 'cb-main' }, h('strong', null, 'Numbers: '), 'tap a square and type the clue number that starts there. Numbers printed in the puzzle stay put.'));
+    } else if (S.mode === 'blocks') {
+      const follow = S.settings.autoMirror
+        ? symMode() === 'mirror4' ? ' The three mirror squares follow.' : symMode() === 'rotational' ? ' The opposite square follows.' : ''
+        : symMode() !== 'none' ? ' Mirror squares are yours to place; they are ringed in blue.' : '';
+      clueBar.append(h('div', { class: 'cb-main' }, h('strong', null, 'Black squares: '), 'tap or drag to add or remove them.' + follow));
     } else if (!slot) {
       clueBar.append(h('div', { class: 'cb-main muted' }, 'Tap a square to begin.'));
     } else {
       const pattern = slot.cells.map((i) => p.cells[i].letter || '·').join(' ');
       if (entry) {
-        const opts = !entry.clue.length && S.lengthHints ? S.lengthHints.get(slot.dir + ':' + slot.number) : null;
+        const opts = !entry.clue.length && S.lengthHints ? S.lengthHints.get(slot.dir + ':' + entry.clue.number) : null;
         clueBar.append(
           h('div', { class: 'cb-main' }, h('strong', { class: 'cb-num' }, `${entry.clue.number} ${DIR_NAME[slot.dir]}`), ' ', entry.clue.text, entry.clue.enumeration ? h('span', { class: 'ce' }, ` (${entry.clue.enumeration})`) : null),
           h(
@@ -764,13 +850,14 @@ export function openPlay(puzzle, { container, onExit }) {
           )
         );
       } else {
-        clueBar.append(h('div', { class: 'cb-main' }, h('strong', { class: 'cb-num' }, `${slot.number} ${DIR_NAME[slot.dir]}`), ` Word of ${slot.length} letters. `, h('span', { class: 'muted' }, 'No clue has this number.')), h('div', { class: 'cb-pattern' }, pattern));
+        clueBar.append(h('div', { class: 'cb-main' }, h('strong', { class: 'cb-num' }, `${DIR_NAME[slot.dir]} word`), ` of ${slot.length} letters. `, h('span', { class: 'muted' }, 'Tap a clue, then this word\u2019s first square, to link them.')), h('div', { class: 'cb-pattern' }, pattern));
       }
     }
-    clues.update({ puzzle: p, matches: S.matches, activeKey: slot ? slot.dir + ':' + slot.number : '', settings: S.settings });
+    clues.update({ puzzle: p, matches: S.matches, activeKey: entry ? slot.dir + ':' + entry.clue.number : '', settings: S.settings });
     kb.setState({ dir: S.dir, pencil: S.pencil, mode: S.mode });
     segLetters.classList.toggle('on', S.mode === 'letters');
     segBlocks.classList.toggle('on', S.mode === 'blocks');
+    segNumbers.classList.toggle('on', S.mode === 'numbers');
     undoBtn.disabled = !S.undo.length;
     redoBtn.disabled = !S.redo.length;
     timerEl.hidden = !S.settings.showTimer;

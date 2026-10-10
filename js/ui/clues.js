@@ -11,7 +11,8 @@ export function entryDone(puzzle, entry) {
 const CHIP = {
   ok: ['ok', 'Placed'],
   'length-mismatch': ['bad', 'Length differs'],
-  missing: ['none', 'No word yet'],
+  missing: ['none', 'No number yet'],
+  misplaced: ['bad', 'Not a word start'],
 };
 
 export function createClueLists({ onSelect, onToggle }) {

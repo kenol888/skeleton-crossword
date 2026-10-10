@@ -22,12 +22,13 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 ## How the pieces fit
 
 - A puzzle is `{ rows, cols, cells[], clues:{across,down}, settings, ... }` (see `js/model.js`). Grids are rectangular: the Sunday Express skeleton is 15 columns by 11 rows. Version 1 files had one square `size` and half-turn symmetry; `fromJSON` still reads them. `cells[i].block` is the player's black square; `givenBlock`, `givenNumber` and `givenLetter` are hints printed in the source and are locked.
-- Numbering and slots are always derived from the blocks (`computeNumbering`), never stored. Clues are matched to slots by number and direction (`matchClues`).
+- Runs of white squares come from the blocks (`computeNumbering`), never stored. The player must never be numbered for: the grid shows only `givenNumber` (printed) and `userNumber` (typed by the player), and a clue is linked to a word by `linkClues`, which looks for the square the player numbered with that clue's number. `matchClues` (the numbers a drawn layout would get) is kept only to judge a layout in opt-in feedback; do not show computed numbers, and do not use them to select or highlight clues (that would reveal where numbers go). Player numbers are also given to the solver as constraints.
 - Symmetry is `settings.symmetry`: `mirror4` (reflect top/bottom and left/right, up to three copies of a square; the Sunday Express rule), `rotational` (half turn) or `none`. `symmetryTargets()` in `js/model.js` is the single definition; the solver and the play screen both use it.
 - The layout solver (`solveLayout`) searches for black-square patterns that agree with the clue numbers. Letter counts are optional: a clue with `length` 0 only fixes which numbers start an across or down word, and the real Sunday Express puzzle has no counts, so it usually has several valid layouts (about 10). It runs in a Web Worker via `js/solverClient.js` and falls back to the main thread.
 - Treat solver output carefully. `result.complete` is true only when every solution was found (neither the node cap nor `maxSolutions` stopped the search). A square is only certain when it is black in *all* solutions of a complete result, so hints and "reveal" must check `complete` first. `play.js` asks for up to 3000 solutions for that reason.
 - `js/play.js` owns all play state. Edits go through `commit()` so undo and redo, autosave and re-rendering stay consistent.
 - Layout help (check, hint, reveal) is opt-in because it gives hints about the grid pattern. Do not show layout feedback by default.
+- `settings.symmetry` (per puzzle) is the rule the puzzle follows and what the solver assumes; `settings.autoMirror` (global) only decides whether placing a square also places its mirrors. With it off, hints place one square at a time.
 
 ## Gotchas
 

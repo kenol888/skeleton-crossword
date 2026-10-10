@@ -82,3 +82,57 @@ test('old square puzzles (version 1 files) load with rotational symmetry', () =>
   assert.deepEqual([q.rows, q.cols], [2, 2]);
   assert.equal(q.settings.symmetry, 'rotational');
 });
+
+// ---- numbers the player places: nothing is numbered for them
+
+import { linkClues, numberAt } from '../js/model.js';
+
+test('numberAt: printed number first, then the player\'s own, else 0', () => {
+  assert.equal(numberAt({ givenNumber: 4, userNumber: 9 }), 4);
+  assert.equal(numberAt({ givenNumber: null, userNumber: 9 }), 9);
+  assert.equal(numberAt({}), 0);
+});
+
+test('linkClues: a clue is only linked once the player has numbered a square for it', () => {
+  const p = fromPattern(['...#.', '.....', '.#.#.', '.....', '.#...']);
+  p.clues.across.push(makeClue(1, 'first', ''), makeClue(5, 'second', ''), makeClue(6, 'third', ''));
+  p.clues.down.push(makeClue(1, 'down one', ''));
+  const nb = computeNumbering(p);
+
+  // nothing numbered yet: nothing is linked, even though the layout has words starting everywhere
+  let m = linkClues(p, nb);
+  assert.deepEqual(m.across.map((e) => e.status), ['missing', 'missing', 'missing']);
+  assert.ok(m.across.every((e) => e.slot === null && e.at === null));
+  assert.equal(m.orphanSlots.length, nb.slots.length);
+
+  // the player numbers the top-left square 1 and the left square of row 1 with 5
+  p.cells[0].userNumber = 1;
+  p.cells[5].userNumber = 5;
+  m = linkClues(p, nb);
+  assert.equal(m.across[0].status, 'ok');
+  assert.equal(m.across[0].slot.cells[0], 0);
+  assert.equal(m.across[0].slot.dir, 'across');
+  assert.equal(m.down[0].status, 'ok'); // the same number also starts the down word
+  assert.equal(m.down[0].slot.dir, 'down');
+  assert.equal(m.across[1].status, 'ok');
+  assert.equal(m.across[2].status, 'missing'); // 6 is still unplaced
+
+  // a number in a square that does not start an across word
+  p.cells[6].userNumber = 6; // row 1, second square: the word on that row starts one square to its left
+  m = linkClues(p, nb);
+  assert.equal(m.across[2].status, 'misplaced');
+  assert.equal(m.across[2].slot, null);
+  assert.equal(m.across[2].at, 6);
+});
+
+test('linkClues: a letter count that disagrees with the word is flagged, and a black square never carries a number', () => {
+  const p = fromPattern(['...#.', '.....']);
+  p.clues.across.push(makeClue(1, 'x', '5')); // the first word is 3 long
+  p.cells[0].userNumber = 1;
+  assert.equal(linkClues(p, computeNumbering(p)).across[0].status, 'length-mismatch');
+  p.cells[3].userNumber = 2; // a black square
+  const q = linkClues(p, computeNumbering(p));
+  p.clues.across.push(makeClue(2, 'y', ''));
+  assert.equal(linkClues(p, computeNumbering(p)).across[1].status, 'missing');
+  assert.ok(q);
+});

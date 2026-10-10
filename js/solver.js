@@ -232,6 +232,8 @@ export function optionsFromPuzzle(puzzle, extra = {}) {
   });
   for (const i of extra.extraBlocks || []) givenBlocks.push(i);
   for (const i of extra.extraWhites || []) givenWhites.push(i);
+  // numbers the player has placed are treated like printed ones: that square must carry that number
+  for (const [i, n] of Object.entries(extra.extraNumbers || {})) givenNumbers[i] = n;
   const pick = (list) => list.map((c) => ({ number: c.number, length: c.length || 0 }));
   return {
     rows: puzzle.rows,

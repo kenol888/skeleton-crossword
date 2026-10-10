@@ -159,3 +159,19 @@ test('a rectangular grid solves without symmetry too', () => {
   const r = solveLayout({ rows: 3, cols: 5, clues, symmetry: 'none', maxSolutions: 10 });
   assert.ok(r.solutions.some((s) => Array.from(s).join('') === mask(rows)));
 });
+
+test('numbers the player placed are passed to the solver as constraints', () => {
+  const { p } = (() => { const q = fromPattern(LATTICE_ROWS); return { p: q }; })();
+  const lat = latticeClues(false);
+  const puzzle = { rows: 11, cols: 15, cells: fromPattern(LATTICE_ROWS).cells.map(() => ({})), clues: lat.clues, settings: { symmetry: 'mirror4' } };
+  puzzle.cells.forEach((c, i) => Object.assign(c, { block: false, givenBlock: latticeGivens.givenBlocks.includes(i), givenNumber: null, givenLetter: null }));
+  const nb = lat.nb;
+  const first = nb.numbers.findIndex((n) => n === 12);
+  const opts = optionsFromPuzzle(puzzle, { extraNumbers: { [first]: 12 } });
+  assert.equal(opts.givenNumbers[first], 12);
+  // the true layout numbers that square 12, so it still has solutions; a wrong square has none
+  assert.ok(solveLayout({ ...opts, maxSolutions: 500 }).count >= 1);
+  const wrong = nb.numbers.findIndex((n) => n === 0);
+  const bad = optionsFromPuzzle(puzzle, { extraNumbers: { [wrong]: 12 } });
+  assert.equal(solveLayout({ ...bad, maxSolutions: 5 }).count, 0);
+});

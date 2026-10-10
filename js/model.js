@@ -17,7 +17,8 @@ export function createCell() {
   return {
     block: false,
     givenBlock: false,
-    givenNumber: null,
+    givenNumber: null, // a clue number printed in the puzzle (locked)
+    userNumber: null, // a clue number the player typed in
     givenLetter: null,
     letter: '',
     pencil: false,
@@ -125,8 +126,51 @@ export function computeNumbering(puzzle) {
   return { numbers, slots };
 }
 
+/** The clue number shown in a square: the printed one, else the one the player typed. 0 if none. */
+export function numberAt(cell) {
+  return cell.givenNumber || cell.userNumber || 0;
+}
+
 /**
- * Match each clue to a slot.
+ * Link each clue to the word that starts in the square the player numbered with its number.
+ * Nothing is worked out for the player: a clue with no number placed yet has status 'missing'.
+ * Returns { across:[{clue,slot,status,at}], down:[...], orphanSlots:[slot] }
+ * status: 'ok' | 'length-mismatch' | 'missing' (no square carries this number)
+ *         | 'misplaced' (the numbered square does not start a word in this direction).
+ * `at` is the numbered square, or null. Words come from `numbering.slots`.
+ */
+export function linkClues(puzzle, numbering) {
+  const squareOf = new Map();
+  puzzle.cells.forEach((c, i) => {
+    const n = numberAt(c);
+    if (n && !c.block && !squareOf.has(n)) squareOf.set(n, i);
+  });
+  const out = { across: [], down: [], orphanSlots: [] };
+  const used = new Set();
+  for (const dir of ['across', 'down']) {
+    for (const clue of puzzle.clues[dir]) {
+      const at = squareOf.has(clue.number) ? squareOf.get(clue.number) : null;
+      let slot = null;
+      let status = 'missing';
+      if (at !== null) {
+        slot = numbering.slots.find((s) => s.dir === dir && s.cells[0] === at) || null;
+        if (!slot) status = 'misplaced';
+        else {
+          used.add(slot);
+          status = !clue.length || slot.length === clue.length ? 'ok' : 'length-mismatch';
+        }
+      }
+      out[dir].push({ clue, slot, status, at });
+    }
+  }
+  out.orphanSlots = numbering.slots.filter((s) => !used.has(s));
+  return out;
+}
+
+/**
+ * Match each clue to a slot by the numbers a layout would get (used to judge a drawn layout,
+ * not to show anything to the player).
+
  * Returns { across:[{clue,slot,status}], down:[...], orphanSlots:[slot] }
  * status: 'ok' | 'length-mismatch' | 'missing'. A clue with no letter count is 'ok' once a word starts there.
  */

@@ -347,6 +347,8 @@ button { touch-action: manipulation; }
 .cell.pencil .ch { color: var(--ink-soft); font-style: italic; font-weight: 500; }
 .cell.hint-num .num { color: var(--given-ink); font-weight: 700; text-decoration: underline; }
 .cell.printed-num .num { color: var(--given-ink); font-weight: 700; }
+.cell.user-num .num { color: var(--accent); font-weight: 700; }
+.cell.sel.user-num .num, .cell.sel.printed-num .num { color: var(--sel-ink); }
 .cell.flash { animation: flash 1.2s ease-out; }
 @keyframes flash { 0% { box-shadow: inset 0 0 0 4px var(--sel); } 100% { box-shadow: inset 0 0 0 4px transparent; } }
 
@@ -419,3 +421,6 @@ button { touch-action: manipulation; }
 /* pop-up for a square the app could not read */
 .cell-zoom { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .zoom-body { display: grid; gap: 4px; }
+
+/* waiting for the player to tap the square where a clue starts */
+.grid.placing { cursor: crosshair; box-shadow: 0 0 0 3px var(--accent); }

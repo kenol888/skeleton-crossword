@@ -1,11 +1,11 @@
 // New-puzzle wizard: photo or PDF -> corners -> check the grid -> clues -> play.
 // "Blank puzzle" skips the first three steps.
-import { h, toast, inputDialog } from './ui/dom.js';
+import { h, toast, dialog, inputDialog } from './ui/dom.js';
 import { createCell, createPuzzle, makeClue, parseEnumeration, SYMMETRY } from './model.js';
 import { parseClues } from './clueParser.js';
 import { recognize, OCR_FAILED } from './ocr.js';
 import {
-  isPdf, loadImageFile, openPdf, autoQuads, straighten, analyseGrid, greyToCanvas, cropCellRegion, rotateCanvas, fixOrientation, sourceThumbnail,
+  isPdf, loadImageFile, openPdf, autoQuads, straighten, analyseGrid, greyToCanvas, cropCellRegion, cropCell, rotateCanvas, fixOrientation, sourceThumbnail,
 } from './imageImport.js';
 import { findClues, readClueBox } from './clueReader.js';
 
@@ -295,8 +295,69 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     }
     refreshCounts();
 
+    // a zoomed picture of the square and a box to type what is printed there
+    async function askPrint(i) {
+      const c = st.cells[i];
+      let message = '';
+      for (;;) {
+        const input = h('input', {
+          id: 'print-in', class: 'text-input mono', type: 'text', maxlength: 3, value: c.kind === 'number' || c.kind === 'letter' ? c.value : '',
+          autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'What is printed in this square',
+        });
+        const zoom = cropCell(st.warped, R, C, i);
+        zoom.className = 'cell-zoom';
+        const body = h(
+          'div',
+          { class: 'zoom-body' },
+          zoom,
+          h('label', { class: 'field', for: 'print-in' }, h('span', null, 'What is printed in the dashed square?'), input),
+          h('p', { class: message ? 'error' : 'muted' }, message || 'Type the clue number (such as 16) or the single letter. If the square is empty, choose Nothing here.')
+        );
+        const d = dialog({
+          title: `Row ${Math.floor(i / C) + 1}, column ${(i % C) + 1}`,
+          body,
+          buttons: [
+            { label: 'Cancel', value: null },
+            { label: 'Nothing here', value: 'none' },
+            { label: 'Set', value: 'ok', primary: true },
+          ],
+        });
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') d.close('ok'); });
+        setTimeout(() => { input.focus(); input.select(); }, 40);
+        const r = await d.promise;
+        if (r === null) return;
+        if (r === 'none') {
+          c.kind = 'none';
+          c.value = '';
+          c.maybe = null;
+          break;
+        }
+        const v = input.value.trim();
+        if (/^\d{1,3}$/.test(v) && +v > 0) {
+          c.kind = 'number';
+          c.value = String(+v);
+          c.maybe = null;
+          break;
+        }
+        if (/^[a-zA-Z]$/.test(v)) {
+          c.kind = 'letter';
+          c.value = v.toUpperCase();
+          c.maybe = null;
+          break;
+        }
+        message = 'That is not a clue number or a single letter. Try again.';
+      }
+      paintCell(i);
+      refreshCounts();
+    }
+
     async function applyTool(i) {
       const c = st.cells[i];
+      // a square with print the app could not read, or the Number and Letter tools: show the square up close
+      if ((c.kind === 'none' && c.maybe) || st.tool === 'number' || st.tool === 'letter') {
+        await askPrint(i);
+        return;
+      }
       if (st.tool === 'block') {
         c.kind = c.kind === 'block' ? 'none' : 'block';
         c.value = '';
@@ -305,20 +366,6 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         c.kind = 'none';
         c.value = '';
         c.maybe = null;
-      } else if (st.tool === 'number') {
-        const v = await inputDialog('Printed clue number', 'Number printed in this square', c.kind === 'number' ? c.value : '', { inputmode: 'numeric', maxlength: 3, okLabel: 'Set number' });
-        if (v && /^\d{1,3}$/.test(v.trim()) && +v > 0) {
-          c.kind = 'number';
-          c.value = String(+v);
-          c.maybe = null;
-        }
-      } else if (st.tool === 'letter') {
-        const v = await inputDialog('Printed letter', 'Letter printed in this square', c.kind === 'letter' ? c.value : '', { maxlength: 1, okLabel: 'Set letter' });
-        if (v && /^[a-zA-Z]$/.test(v.trim())) {
-          c.kind = 'letter';
-          c.value = v.trim().toUpperCase();
-          c.maybe = null;
-        }
       }
       paintCell(i);
       refreshCounts();
@@ -379,7 +426,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         const left = st.cells.filter((c) => c.kind === 'none' && c.maybe).length;
         const n = st.cells.filter((c) => c.kind === 'number').length;
         const l = st.cells.filter((c) => c.kind === 'letter').length;
-        status.textContent = `Found ${n} printed number${n === 1 ? '' : 's'} and ${l} printed letter${l === 1 ? '' : 's'}.` + (left ? ` ${left} square${left === 1 ? ' has' : 's have'} print I could not read (dashed ?). Use the Number or Letter tool to type ${left === 1 ? 'it' : 'them'}, or Clear if there is nothing there.` : ' Check them against the picture.');
+        status.textContent = `Found ${n} printed number${n === 1 ? '' : 's'} and ${l} printed letter${l === 1 ? '' : 's'}.` + (left ? ` ${left} square${left === 1 ? ' has' : 's have'} print I could not read (dashed ?). Tap ${left === 1 ? 'it' : 'one'} to see the square up close and type what is printed.` : ' Check them against the picture.');
       } catch (e) {
         if (token === st.readToken) status.textContent = "Couldn't load the text reader (no connection?). Use the Number or Letter tool to type the printed numbers and letters yourself.";
       } finally {
@@ -432,9 +479,9 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
           'ul',
           { class: 'legend' },
           h('li', null, h('i', { class: 'sw block' }), 'Black square printed in the puzzle'),
-          h('li', null, h('i', { class: 'sw number' }, '7'), 'Printed clue number (badge in the corner)'),
-          h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Printed letter'),
-          h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read')
+          h('li', null, h('i', { class: 'sw number' }, '7'), 'Clue number I read'),
+          h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Letter I read'),
+          h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read (tap it to type it in)')
         ),
         status,
         h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Fix a mistake:'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Tool' }, toolBtns), counts),

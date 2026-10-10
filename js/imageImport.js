@@ -169,6 +169,31 @@ export function cropCellRegion(warped, rows, cols, index, kind, crisp = false) {
   return out;
 }
 
+/** A zoomed picture of one square (with a little of its neighbours), the square itself outlined. */
+export function cropCell(warped, rows, cols, index) {
+  const cw = warped.W / cols;
+  const ch = warped.H / rows;
+  const r = Math.floor(index / cols);
+  const c = index % cols;
+  const m = 0.3; // how much of the neighbouring squares to show
+  const x0 = Math.max(0, Math.round((c - m) * cw));
+  const y0 = Math.max(0, Math.round((r - m) * ch));
+  const x1 = Math.min(warped.W, Math.round((c + 1 + m) * cw));
+  const y1 = Math.min(warped.H, Math.round((r + 1 + m) * ch));
+  const scale = 240 / (x1 - x0);
+  const out = document.createElement('canvas');
+  out.width = Math.round((x1 - x0) * scale);
+  out.height = Math.round((y1 - y0) * scale);
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(greyToCanvas(warped.grey, warped.W, warped.H), x0, y0, x1 - x0, y1 - y0, 0, 0, out.width, out.height);
+  ctx.strokeStyle = '#2468d8';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect((c * cw - x0) * scale, (r * ch - y0) * scale, cw * scale, ch * scale);
+  return out;
+}
+
 /** Crop a rectangle (source canvas pixels) for reading clue text; upscale small areas. */
 export function cropRect(canvas, x, y, w, h) {
   const scale = Math.max(1, Math.min(3, 1600 / Math.max(w, 1)));

@@ -1,6 +1,7 @@
 // Canvas-side image helpers for the import flow: load a photo or PDF, convert to greyscale,
 // straighten the grid, and crop pieces for the text reader. The maths lives in gridDetect.js.
-import { darkMask, detectQuad, detectQuads, detectGridDims, detectHints, warpGrey, warpDims, REGIONS } from './gridDetect.js';
+import { darkMask, detectQuad, detectQuads, detectGridDims, detectHints, warpGrey, warpDims, otsuThreshold, REGIONS } from './gridDetect.js';
+import { recognizeWords } from './ocr.js';
 
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -132,7 +133,7 @@ export function analyseGrid(warped, rows, cols) {
 }
 
 /** Crop a cell's number or letter area from the straightened grid for the text reader. */
-export function cropCellRegion(warped, rows, cols, index, kind) {
+export function cropCellRegion(warped, rows, cols, index, kind, crisp = false) {
   const cw = warped.W / cols;
   const ch = warped.H / rows;
   const r = Math.floor(index / cols);
@@ -153,6 +154,18 @@ export function cropCellRegion(warped, rows, cols, index, kind) {
   const tmp = greyToCanvas(warped.grey, warped.W, warped.H);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(tmp, x0, y0, w, h, pad, pad, w * scale, h * scale);
+  if (crisp) {
+    // pure black on white, which small printed digits read better in
+    const img = ctx.getImageData(0, 0, out.width, out.height);
+    const grey = new Uint8Array(out.width * out.height);
+    for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = img.data[j];
+    const thr = otsuThreshold(grey);
+    for (let i = 0, j = 0; i < grey.length; i++, j += 4) {
+      const v = grey[i] <= thr ? 0 : 255;
+      img.data[j] = img.data[j + 1] = img.data[j + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
   return out;
 }
 
@@ -177,4 +190,62 @@ export function sourceThumbnail(canvas) {
   c.height = Math.round(canvas.height * scale);
   c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.8);
+}
+
+/** A copy of the canvas turned clockwise by 0, 90, 180 or 270 degrees. */
+export function rotateCanvas(canvas, degrees) {
+  const d = ((degrees % 360) + 360) % 360;
+  if (d === 0) return canvas;
+  const swap = d === 90 || d === 270;
+  const out = document.createElement('canvas');
+  out.width = swap ? canvas.height : canvas.width;
+  out.height = swap ? canvas.width : canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((d * Math.PI) / 180);
+  ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+  return out;
+}
+
+/** Long side of the picture used to judge orientation: big enough for small print to be legible. */
+const ORIENT_SIDE = 1700;
+
+function downscaled(canvas) {
+  const s = Math.min(1, ORIENT_SIDE / Math.max(canvas.width, canvas.height));
+  if (s === 1) return canvas;
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * s);
+  c.height = Math.round(canvas.height * s);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+/**
+ * Turn the page the right way up. The crossword is wider than tall in the Sunday Express, so
+ * the shape of the biggest grid says whether the page is sideways. A quick read of the text
+ * then picks between the two turns that are left (right way up or upside down).
+ * Resolves { canvas, degrees, checked } where `checked` is false if the text reader was
+ * unavailable (offline), in which case the page is left as it was.
+ */
+export async function fixOrientation(canvas, onStatus = () => {}) {
+  const quad = autoQuads(canvas)[0];
+  const w = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
+  const h = Math.hypot(quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]);
+  const aspect = w / Math.max(1, h);
+  const candidates = aspect >= 1.08 ? [0, 180] : aspect <= 0.92 ? [90, 270] : [0, 90, 180, 270];
+  onStatus('Checking which way up the page is…');
+  const scored = [];
+  try {
+    for (const deg of candidates) {
+      const rotated = rotateCanvas(canvas, deg);
+      const r = await recognizeWords(downscaled(rotated)); // same canvas (so cached for the clue finder) unless it was shrunk
+      scored.push({ deg, rotated, good: r.good, conf: r.confidence });
+      // a clearly readable first try needs no second opinion
+      if (r.good >= 150 && r.confidence >= 85) break;
+    }
+  } catch (e) {
+    return { canvas, degrees: 0, checked: false };
+  }
+  scored.sort((a, b) => b.good - a.good);
+  return { canvas: scored[0].rotated, degrees: scored[0].deg, checked: true };
 }

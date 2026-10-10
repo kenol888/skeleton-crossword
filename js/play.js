@@ -66,6 +66,7 @@ export function openPlay(puzzle, { container, onExit }) {
     ticks: 0,
     busy: false,
     lengthHints: null,
+    kbOpen: false,
   };
 
   // ---------------------------------------------------------------- derived data
@@ -244,6 +245,7 @@ export function openPlay(puzzle, { container, onExit }) {
   }
   function setMode(m) {
     S.mode = m;
+    if (m === 'blocks') S.kbOpen = false;
     render();
   }
 
@@ -275,6 +277,7 @@ export function openPlay(puzzle, { container, onExit }) {
       return;
     }
     if (p.cells[i].block) return;
+    if (S.settings.keyboard === 'auto') S.kbOpen = true; // going to type: bring up the keyboard
     if (i === S.sel) toggleDir();
     else select(i);
   }
@@ -618,6 +621,21 @@ export function openPlay(puzzle, { container, onExit }) {
       });
       return h('div', { class: 'switch-row stack' }, h('span', { class: 'sw-text' }, h('strong', null, 'Black square symmetry'), note), seg);
     };
+    const kbRow = () => {
+      const opts = [['auto', 'When typing'], ['always', 'Always'], ['never', 'Never']];
+      const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'On-screen keyboard' });
+      opts.forEach(([k, label]) => {
+        const b = h('button', { type: 'button', class: 'seg-btn' + (S.settings.keyboard === k ? ' on' : ''), onclick: () => {
+          S.settings.keyboard = k;
+          S.kbOpen = false;
+          [...seg.children].forEach((x) => x.classList.toggle('on', x === b));
+          save();
+          render();
+        } }, label);
+        seg.append(b);
+      });
+      return h('div', { class: 'switch-row stack' }, h('span', { class: 'sw-text' }, h('strong', null, 'On-screen keyboard'), h('small', null, 'When typing: it slides up as soon as you tap a square, so the clues stay in view the rest of the time. Choose Never with a keyboard case.')), seg);
+    };
     const body = h(
       'div',
       { class: 'settings' },
@@ -626,9 +644,17 @@ export function openPlay(puzzle, { container, onExit }) {
       row('set-skip', 'Skip filled squares', 'Typing jumps over squares that already have a letter.', () => S.settings.skipFilled, (v) => { S.settings.skipFilled = v; save(); }),
       row('set-down', 'Move solved clues down', 'Crossed-off clues drop to the end of each list.', () => S.settings.moveSolvedDown, (v) => { S.settings.moveSolvedDown = v; save(); }),
       row('set-timer', 'Show timer', '', () => S.settings.showTimer, (v) => { S.settings.showTimer = v; save(); }),
-      row('set-kb', 'Show on-screen keyboard', 'Turn off if you use a keyboard case.', () => S.settings.showKeyboard, (v) => { S.settings.showKeyboard = v; save(); })
+      kbRow()
     );
     dialog({ title: 'Settings', body, buttons: [{ label: 'Done', value: true, primary: true }] });
+  }
+  async function renamePuzzle() {
+    const v = await inputDialog('Rename puzzle', 'Name', p.title, { maxlength: 60, okLabel: 'Rename' });
+    if (v && v.trim()) {
+      p.title = v.trim();
+      titleEl.textContent = p.title;
+      scheduleSave();
+    }
   }
   function layoutMenu() {
     actionSheet('Black squares', [
@@ -641,6 +667,7 @@ export function openPlay(puzzle, { container, onExit }) {
     actionSheet('Tools', [
       { label: 'Word finder', hint: 'Fill in a pattern like C?T?? or find anagrams', run: wordFinder },
       { label: 'Show original photo', hint: 'See the printed puzzle', run: showOriginal },
+      { label: 'Rename puzzle', run: renamePuzzle },
       { label: 'Clear…', hint: 'Letters, black squares or both', run: clearDialog },
       { label: 'Settings', run: settingsDialog },
     ]);
@@ -672,6 +699,7 @@ export function openPlay(puzzle, { container, onExit }) {
     toggleMode: () => setMode(S.mode === 'blocks' ? 'letters' : 'blocks'),
     prev: () => stepClue(-1),
     next: () => stepClue(1),
+    hide: () => { S.kbOpen = false; render(); },
   });
 
   const btn = (label, fn, cls = '', aria) => h('button', { class: 'btn ' + cls, type: 'button', onclick: fn, 'aria-label': aria || label }, label);
@@ -679,6 +707,7 @@ export function openPlay(puzzle, { container, onExit }) {
   const titleEl = h('h1', { class: 'play-title' }, p.title);
   const segLetters = h('button', { class: 'seg-btn', type: 'button', onclick: () => setMode('letters') }, 'Letters');
   const segBlocks = h('button', { class: 'seg-btn', type: 'button', onclick: () => setMode('blocks') }, 'Squares');
+  const pencilBtn = btn('Pencil', () => { S.pencil = !S.pencil; render(); }, 'quiet toggle');
   const undoBtn = btn('Undo', undo, 'quiet');
   const redoBtn = btn('Redo', redo, 'quiet');
   const timerEl = h('span', { class: 'timer', 'aria-label': 'Time spent' }, fmtTime(p.elapsedMs));
@@ -693,6 +722,7 @@ export function openPlay(puzzle, { container, onExit }) {
       backBtn,
       titleEl,
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Input mode' }, segLetters, segBlocks),
+      pencilBtn,
       undoBtn,
       redoBtn,
       btn('Layout', layoutMenu, 'quiet'),
@@ -707,6 +737,8 @@ export function openPlay(puzzle, { container, onExit }) {
   container.append(root);
 
   function render() {
+    const kbMode = S.settings.keyboard;
+    const kbVisible = S.mode === 'letters' && (kbMode === 'always' || (kbMode === 'auto' && S.kbOpen));
     const slot = currentSlot();
     const warn = new Set();
     if (S.settings.layoutFeedback) {
@@ -742,6 +774,8 @@ export function openPlay(puzzle, { container, onExit }) {
             { class: 'cb-foot' },
             h('span', { class: 'cb-pattern' }, pattern),
             opts && opts.size > 1 ? h('span', { class: 'cb-opts' }, `Could be ${lengthText(opts)} letters`) : null,
+            h('span', { class: 'grow' }),
+            !kbVisible && kbMode === 'auto' ? h('button', { class: 'btn quiet small', type: 'button', onclick: () => { S.kbOpen = true; render(); } }, 'Keyboard') : null,
             h('button', { class: 'btn quiet small', type: 'button', onclick: () => setLetterCount(entry) }, entry.clue.enumeration ? 'Change letter count' : 'Set letter count')
           )
         );
@@ -756,8 +790,10 @@ export function openPlay(puzzle, { container, onExit }) {
     undoBtn.disabled = !S.undo.length;
     redoBtn.disabled = !S.redo.length;
     timerEl.hidden = !S.settings.showTimer;
-    kb.el.hidden = !S.settings.showKeyboard;
-    root.classList.toggle('no-kb', !S.settings.showKeyboard);
+    kb.el.hidden = !kbVisible;
+    root.classList.toggle('kb-open', kbVisible);
+    pencilBtn.classList.toggle('on', S.pencil);
+    pencilBtn.setAttribute('aria-pressed', S.pencil ? 'true' : 'false');
   }
 
   // ---------------------------------------------------------------- lifecycle

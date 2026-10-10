@@ -108,12 +108,16 @@ const DEFAULT_SETTINGS = {
   skipFilled: false,
   moveSolvedDown: false,
   showTimer: true,
-  showKeyboard: true,
+  keyboard: 'auto', // 'auto' shows it when you tap a square, 'always', or 'never'
 };
 
 export function loadSettings() {
   try {
-    return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(rawGet(SETTINGS_KEY) || '{}'));
+    const saved = JSON.parse(rawGet(SETTINGS_KEY) || '{}');
+    const merged = Object.assign({}, DEFAULT_SETTINGS, saved);
+    // older versions had a plain on/off switch
+    if (!('keyboard' in saved)) merged.keyboard = saved.showKeyboard === false ? 'never' : 'auto';
+    return merged;
   } catch (e) {
     return Object.assign({}, DEFAULT_SETTINGS);
   }

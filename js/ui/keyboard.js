@@ -5,6 +5,7 @@ const ROWS = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
 
 export function createKeyboard(cb) {
   const root = h('div', { class: 'kb', role: 'group', 'aria-label': 'Keyboard' });
+  root.append(h('div', { class: 'kb-head' }, h('button', { class: 'btn quiet small', type: 'button', 'aria-label': 'Hide keyboard', onclick: () => cb.hide() }, 'Hide keyboard \u2304')));
   // pointerdown + preventDefault keeps focus where it is and reacts instantly on touch
   const press = (fn) => (e) => {
     e.preventDefault();

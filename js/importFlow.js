@@ -1,48 +1,58 @@
-// New-puzzle wizard: photo or PDF -> corners -> grid hints -> clues -> finish.
+// New-puzzle wizard: photo or PDF -> corners -> check the grid -> clues -> play.
 // "Blank puzzle" skips the first three steps.
-import { h, toast, dialog, inputDialog } from './ui/dom.js';
+import { h, toast, inputDialog } from './ui/dom.js';
 import { createCell, createPuzzle, makeClue, parseEnumeration, SYMMETRY } from './model.js';
 import { parseClues } from './clueParser.js';
-import { optionsFromPuzzle } from './solver.js';
-import { runSolver } from './solverClient.js';
 import { recognize, OCR_FAILED } from './ocr.js';
 import {
-  isPdf, loadImageFile, openPdf, autoQuads, straighten, analyseGrid, greyToCanvas, cropCellRegion, cropRect, sourceThumbnail,
+  isPdf, loadImageFile, openPdf, autoQuads, straighten, analyseGrid, greyToCanvas, cropCellRegion, rotateCanvas, fixOrientation, sourceThumbnail,
 } from './imageImport.js';
-
-const STEP_NAMES = ['Photo', 'Corners', 'Grid', 'Clues', 'Finish'];
+import { findClues, readClueBox } from './clueReader.js';
 
 function dateTitle() {
   return 'Skeleton ' + new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+const TOOLS = [
+  ['block', 'Black square', 'Tap a square to make it black, or tap a black square to make it white again.'],
+  ['number', 'Number', 'Tap a square, then type the clue number printed in it.'],
+  ['letter', 'Letter', 'Tap a square, then type the letter printed in it.'],
+  ['clear', 'Clear', 'Tap a square to remove whatever the app marked on it.'],
+];
+
 export function startImport({ container, blank = false, rows = 11, cols = 15, title = '', onDone, onCancel }) {
   const st = {
     step: blank ? 4 : 1,
     src: null,
-    quad: null,
+    turned: 0,
     quads: [],
     quadIdx: 0,
+    quad: null,
     warped: null,
     rows,
     cols,
     symmetry: 'mirror4',
+    tool: 'block',
     cells: Array.from({ length: rows * cols }, () => ({ kind: 'none', value: '', maybe: null })),
+    readToken: 0,
+    clueToken: 0,
+    clueState: 'idle', // idle | reading | done | failed
+    clueStatus: '',
     clueText: '',
     clues: { across: [], down: [] },
     warnings: [],
+    boxes: null,
     title: title || dateTitle(),
-    box: null,
   };
 
-  const names = blank ? ['Clues', 'Finish'] : STEP_NAMES;
+  const names = blank ? ['Clues'] : ['Photo', 'Corners', 'Grid', 'Clues'];
   const first = blank ? 4 : 1;
 
   // ---------------------------------------------------------------- shell
   function shell(stepNo, content) {
     const dots = names.map((n, i) => {
       const num = first + i;
-      return h('li', { class: 'step-dot' + (num === stepNo ? ' on' : num < stepNo ? ' past' : '') , 'aria-current': num === stepNo ? 'step' : null }, n);
+      return h('li', { class: 'step-dot' + (num === stepNo ? ' on' : num < stepNo ? ' past' : ''), 'aria-current': num === stepNo ? 'step' : null }, n);
     });
     container.textContent = '';
     container.append(
@@ -58,11 +68,12 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
   const btn = (label, fn, cls = '') => h('button', { class: 'btn ' + cls, type: 'button', onclick: fn }, label);
 
   function go(n) {
+    st.readToken++; // stop any background reading started by the step we are leaving
     st.step = n;
     render();
   }
   function render() {
-    [null, stepSource, stepCorners, stepGrid, stepClues, stepFinish][st.step]();
+    [null, stepSource, stepCorners, stepGrid, stepClues][st.step]();
   }
 
   // ---------------------------------------------------------------- 1. source
@@ -74,6 +85,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       if (!f) return;
       status.textContent = 'Opening ' + f.name + '…';
       try {
+        let canvas;
         if (isPdf(f)) {
           const pdf = await openPdf(f);
           let page = 1;
@@ -85,15 +97,17 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
             }
             page = Math.min(pdf.pageCount, Math.max(1, parseInt(v, 10) || 1));
           }
-          st.src = await pdf.render(page);
+          canvas = await pdf.render(page);
         } else {
-          st.src = await loadImageFile(f);
+          canvas = await loadImageFile(f);
         }
+        await new Promise((r) => setTimeout(r, 20));
+        const fixed = await fixOrientation(canvas, (m) => { status.textContent = m; });
+        st.src = fixed.canvas;
+        st.turned = fixed.degrees;
         status.textContent = 'Looking for the grid…';
         await new Promise((r) => setTimeout(r, 20));
-        st.quads = autoQuads(st.src);
-        st.quadIdx = 0;
-        st.quad = st.quads[0].map((q) => q.slice());
+        findQuads();
         go(2);
       } catch (e) {
         status.textContent = '';
@@ -104,7 +118,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       'label',
       { class: 'drop', for: 'file-in' },
       h('strong', null, 'Choose a photo, screenshot or PDF'),
-      h('span', null, 'On iPad you can pick from Photos, Files, or take a picture of the newspaper.')
+      h('span', null, 'On iPad you can pick from Photos, Files, or take a picture of the newspaper. A sideways page is turned the right way up for you.')
     );
     ['dragover', 'drop'].forEach((ev) =>
       zone.addEventListener(ev, (e) => {
@@ -121,13 +135,19 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         'div',
         { class: 'panel narrow' },
         h('h2', null, 'Start from the printed puzzle'),
-        h('p', null, 'Photograph the page flat and in good light, or use a screenshot or PDF of the e-edition. You will adjust the grid corners next, then check what the app found.'),
+        h('p', null, 'Photograph the whole page flat and in good light, or use a screenshot or PDF of the e-edition.'),
         input,
         zone,
         status,
         h('p', { class: 'muted' }, 'No picture to hand? ', h('button', { class: 'link', type: 'button', onclick: onCancel }, 'Go back'), ' and choose Blank puzzle.')
       )
     );
+  }
+
+  function findQuads() {
+    st.quads = autoQuads(st.src);
+    st.quadIdx = 0;
+    st.quad = st.quads[0].map((q) => q.slice());
   }
 
   // ---------------------------------------------------------------- 2. corners
@@ -175,35 +195,46 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     }
     draw();
     const status = h('p', { class: 'status', 'aria-live': 'polite' });
+    const turn = (deg) => {
+      st.src = rotateCanvas(st.src, deg);
+      st.turned = (st.turned + deg) % 360;
+      st.clueState = 'idle';
+      findQuads();
+      stepCorners();
+    };
+    async function next() {
+      status.textContent = 'Straightening…';
+      await new Promise((r) => setTimeout(r, 20));
+      try {
+        st.warped = straighten(st.src, st.quad);
+        applyAnalysis(analyseGrid(st.warped));
+        go(3);
+      } catch (e) {
+        status.textContent = '';
+        toast('Those corners overlap. Move them so they form a four-sided shape around the grid.', 5000);
+      }
+    }
     shell(
       2,
       h(
         'div',
         { class: 'panel' },
-        h('h2', null, 'Drag the four corners onto the grid'),
-        h('p', null, 'Place each handle on an outer corner of the grid. Photos taken at an angle are straightened for you.'),
+        h('h2', null, 'Is the box round the grid?'),
+        h('p', null, st.turned ? 'The page was sideways, so I turned it. If the box is not on the grid, drag its corners. ' : 'If the box is not on the grid, drag its corners. ', 'Photos taken at an angle are straightened for you.'),
         wrap,
         status,
         nav(
           btn('‹ Choose another', () => go(1), 'quiet'),
-          st.quads.length > 1 ? btn('Try another grid on the page', () => {
-            st.quadIdx = (st.quadIdx + 1) % st.quads.length;
-            st.quad = st.quads[st.quadIdx].map((q) => q.slice());
-            draw();
-          }, 'quiet') : null,
-          btn('Reset corners', () => { st.quad = st.quads[st.quadIdx].map((q) => q.slice()); draw(); }, 'quiet'),
-          btn('Straighten grid ›', async () => {
-            status.textContent = 'Straightening…';
-            await new Promise((r) => setTimeout(r, 20));
-            try {
-              st.warped = straighten(st.src, st.quad);
-              applyAnalysis(analyseGrid(st.warped));
-              go(3);
-            } catch (e) {
-              status.textContent = '';
-              toast('Those corners overlap. Move them so they form a four-sided shape around the grid.', 5000);
-            }
-          }, 'primary')
+          btn('↺ Turn left', () => turn(270), 'quiet'),
+          btn('↻ Turn right', () => turn(90), 'quiet'),
+          st.quads.length > 1
+            ? btn('Try another grid on the page', () => {
+                st.quadIdx = (st.quadIdx + 1) % st.quads.length;
+                st.quad = st.quads[st.quadIdx].map((q) => q.slice());
+                draw();
+              }, 'quiet')
+            : null,
+          btn('Next ›', next, 'primary')
         )
       )
     );
@@ -220,93 +251,131 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     }));
   }
 
-  // ---------------------------------------------------------------- 3. grid hints
+  // ---------------------------------------------------------------- 3. check the grid
   function stepGrid() {
     const R = st.rows;
     const C = st.cols;
+    const token = ++st.readToken;
     const cv = greyToCanvas(st.warped.grey, st.warped.W, st.warped.H);
     cv.className = 'warp-canvas';
     const over = h('div', { class: 'hint-grid', style: `--cols:${C};--rows:${R}` });
     const status = h('p', { class: 'status', 'aria-live': 'polite' });
+    const counts = h('span', { class: 'muted' });
+    const help = h('p', { class: 'tool-help' });
+    const nextBtn = btn('Next ›', () => go(4), 'primary');
+
     const cellEls = st.cells.map((c, i) => {
       const b = h('button', { class: 'hcell', type: 'button', 'aria-label': `Row ${Math.floor(i / C) + 1}, column ${(i % C) + 1}` });
-      b.addEventListener('click', () => cycle(i));
+      b.addEventListener('click', () => applyTool(i));
       over.append(b);
       return b;
     });
     function paintCell(i) {
       const c = st.cells[i];
       const el = cellEls[i];
-      el.className = 'hcell ' + c.kind + (c.kind === 'none' && c.maybe ? ' maybe' : '');
-      el.textContent = c.kind === 'number' || c.kind === 'letter' ? c.value : c.kind === 'none' && c.maybe ? '?' : '';
+      const unread = c.kind === 'none' && c.maybe;
+      el.className = 'hcell ' + c.kind + (unread ? ' unread' : '');
+      el.textContent = c.kind === 'number' || c.kind === 'letter' ? c.value : unread ? '?' : '';
+      el.title = unread ? 'There is print here that the app could not read' : '';
     }
     st.cells.forEach((_, i) => paintCell(i));
+    function refreshCounts() {
+      const b = st.cells.filter((c) => c.kind === 'block').length;
+      const n = st.cells.filter((c) => c.kind === 'number').length;
+      const l = st.cells.filter((c) => c.kind === 'letter').length;
+      counts.textContent = `${b} black, ${n} numbered, ${l} lettered`;
+    }
+    refreshCounts();
 
-    async function cycle(i) {
+    async function applyTool(i) {
       const c = st.cells[i];
-      const order = ['none', 'block', 'number', 'letter'];
-      let next = order[(order.indexOf(c.kind) + 1) % 4];
-      let value = '';
-      if (next === 'number') {
-        const v = await inputDialog('Printed clue number', 'Number shown in this square', '', { inputmode: 'numeric', maxlength: 3, okLabel: 'Set number' });
-        if (v && /^\d{1,3}$/.test(v.trim()) && +v > 0) value = String(+v);
-        else next = 'letter';
+      if (st.tool === 'block') {
+        c.kind = c.kind === 'block' ? 'none' : 'block';
+        c.value = '';
+        c.maybe = null;
+      } else if (st.tool === 'clear') {
+        c.kind = 'none';
+        c.value = '';
+        c.maybe = null;
+      } else if (st.tool === 'number') {
+        const v = await inputDialog('Printed clue number', 'Number printed in this square', c.kind === 'number' ? c.value : '', { inputmode: 'numeric', maxlength: 3, okLabel: 'Set number' });
+        if (v && /^\d{1,3}$/.test(v.trim()) && +v > 0) {
+          c.kind = 'number';
+          c.value = String(+v);
+          c.maybe = null;
+        }
+      } else if (st.tool === 'letter') {
+        const v = await inputDialog('Printed letter', 'Letter printed in this square', c.kind === 'letter' ? c.value : '', { maxlength: 1, okLabel: 'Set letter' });
+        if (v && /^[a-zA-Z]$/.test(v.trim())) {
+          c.kind = 'letter';
+          c.value = v.trim().toUpperCase();
+          c.maybe = null;
+        }
       }
-      if (next === 'letter') {
-        const v = await inputDialog('Printed letter', 'Letter shown in this square', '', { maxlength: 1, okLabel: 'Set letter' });
-        if (v && /^[a-zA-Z]$/.test(v.trim())) value = v.trim().toUpperCase();
-        else next = 'none';
-      }
-      c.kind = next;
-      c.value = value;
       paintCell(i);
       refreshCounts();
     }
 
-    async function readMarks() {
+    // read any printed numbers and letters straight away, no button needed
+    async function autoRead() {
       const jobs = [];
       st.cells.forEach((c, i) => {
         if (c.kind === 'none' && c.maybe) jobs.push(i);
       });
       if (!jobs.length) {
-        toast('No printed numbers or letters were spotted. Tap a square to add one by hand.');
+        status.textContent = 'No printed numbers or letters found. If the puzzle has some, use the Number or Letter tool below.';
         return;
       }
-      const capped = jobs.slice(0, 80);
-      let done = 0;
-      readBtn.disabled = true;
+      const todo = jobs.slice(0, 80);
+      nextBtn.disabled = true;
       try {
-        for (const i of capped) {
+        for (let k = 0; k < todo.length; k++) {
+          if (token !== st.readToken) return;
+          const i = todo[k];
           const c = st.cells[i];
-          status.textContent = `Reading squares… ${done + 1} of ${capped.length}`;
+          status.textContent = `Reading the printed numbers and letters… ${k + 1} of ${todo.length}`;
           let got = false;
           if (c.maybe === 'number' || c.both) {
-            const r = await recognize(cropCellRegion(st.warped, R, C, i, 'number'), { mode: 'digits' });
-            const t = r.text.replace(/\D/g, '');
-            if (t && +t > 0 && +t < 200 && r.confidence > 30) {
-              c.kind = 'number';
-              c.value = String(+t);
-              got = true;
+            // try the plain crop, then a crisp black-and-white one, then one digit at a time
+            const attempts = [
+              ['digits', false],
+              ['digits', true],
+              ['digit', true],
+            ];
+            for (const [mode, crisp] of attempts) {
+              const r = await recognize(cropCellRegion(st.warped, R, C, i, 'number', crisp), { mode });
+              if (token !== st.readToken) return;
+              const t = r.text.replace(/\D/g, '');
+              if (t && +t > 0 && +t < 200 && r.confidence > 30) {
+                c.kind = 'number';
+                c.value = String(+t);
+                c.maybe = null;
+                got = true;
+                break;
+              }
             }
           }
           if (!got && (c.maybe === 'letter' || c.both)) {
             const r = await recognize(cropCellRegion(st.warped, R, C, i, 'letter'), { mode: 'letter' });
             const t = r.text.replace(/[^A-Z]/g, '');
+            if (token !== st.readToken) return;
             if (t.length === 1 && r.confidence > 30) {
               c.kind = 'letter';
               c.value = t;
+              c.maybe = null;
             }
           }
           paintCell(i);
-          done++;
         }
-        status.textContent = `Read ${capped.length} squares. Tap any square to correct it.`;
         refreshCounts();
+        const left = st.cells.filter((c) => c.kind === 'none' && c.maybe).length;
+        const n = st.cells.filter((c) => c.kind === 'number').length;
+        const l = st.cells.filter((c) => c.kind === 'letter').length;
+        status.textContent = `Found ${n} printed number${n === 1 ? '' : 's'} and ${l} printed letter${l === 1 ? '' : 's'}.` + (left ? ` ${left} square${left === 1 ? ' has' : 's have'} print I could not read (dashed ?). Use the Number or Letter tool to type ${left === 1 ? 'it' : 'them'}, or Clear if there is nothing there.` : ' Check them against the picture.');
       } catch (e) {
-        status.textContent = '';
-        toast(OCR_FAILED, 6000);
+        if (token === st.readToken) status.textContent = "Couldn't load the text reader (no connection?). Use the Number or Letter tool to type the printed numbers and letters yourself.";
       } finally {
-        readBtn.disabled = false;
+        if (token === st.readToken) nextBtn.disabled = false;
       }
     }
 
@@ -317,15 +386,6 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       applyAnalysis(analyseGrid(st.warped, st.rows, st.cols));
       stepGrid();
     }
-    const readBtn = btn('Read printed numbers and letters', readMarks, '');
-    const counts = h('span', { class: 'muted' });
-    function refreshCounts() {
-      const b = st.cells.filter((c) => c.kind === 'block').length;
-      const n = st.cells.filter((c) => c.kind === 'number').length;
-      const l = st.cells.filter((c) => c.kind === 'letter').length;
-      counts.textContent = `${b} black, ${n} numbered, ${l} lettered`;
-    }
-    refreshCounts();
     const stepper = (label, value, onChange) =>
       h(
         'div',
@@ -342,129 +402,176 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         h('button', { type: 'button', class: 'seg-btn' + (st.symmetry === k ? ' on' : ''), onclick: () => { st.symmetry = k; stepGrid(); } }, label.split(':')[0])
       )
     );
+    const toolBtns = TOOLS.map(([key, label]) => {
+      const b = h('button', { type: 'button', class: 'seg-btn' + (st.tool === key ? ' on' : ''), onclick: () => setTool(key) }, label);
+      b.dataset.tool = key;
+      return b;
+    });
+    function setTool(key) {
+      st.tool = key;
+      toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === key));
+      help.textContent = TOOLS.find((t) => t[0] === key)[2];
+    }
+    help.textContent = TOOLS.find((t) => t[0] === st.tool)[2];
+
     shell(
       3,
       h(
         'div',
         { class: 'panel' },
-        h('h2', null, 'Check the grid'),
-        h('p', null, 'Skeleton grids show just a few black squares, numbers or letters. Tap a square to cycle: blank, black, number, letter. A ? marks ink that needs reading.'),
-        h('div', { class: 'size-row' }, stepper('Columns', C, (v) => setDims(R, v)), stepper('Rows', R, (v) => setDims(v, C)), counts),
-        h('div', { class: 'size-row' }, h('span', null, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
-        h('div', { class: 'warp-wrap', style: `aspect-ratio:${st.warped.W} / ${st.warped.H}` }, cv, over),
+        h('h2', null, 'Check what I found in the grid'),
+        h(
+          'ul',
+          { class: 'legend' },
+          h('li', null, h('i', { class: 'sw block' }), 'Black square printed in the puzzle'),
+          h('li', null, h('i', { class: 'sw number' }, '7'), 'Printed clue number'),
+          h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Printed letter'),
+          h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read')
+        ),
         status,
-        nav(btn('‹ Corners', () => go(2), 'quiet'), readBtn, btn('Clues ›', () => go(4), 'primary'))
+        h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Fix a mistake:'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Tool' }, toolBtns), counts),
+        help,
+        h('div', { class: 'warp-wrap', style: `aspect-ratio:${st.warped.W} / ${st.warped.H};--cols:${C};--rows:${R}` }, cv, over),
+        h('div', { class: 'size-row' }, stepper('Columns', C, (v) => setDims(R, v)), stepper('Rows', R, (v) => setDims(v, C))),
+        h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
+        nav(btn('‹ Back', () => go(2), 'quiet'), nextBtn)
       )
     );
+    autoRead();
   }
 
   // ---------------------------------------------------------------- 4. clues
+  const gridRect = () => {
+    const xs = st.quad.map((q) => q[0]);
+    const ys = st.quad.map((q) => q[1]);
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  };
+
+  function applyClueText(text) {
+    st.clueText = text;
+    const parsed = parseClues(text);
+    st.clues = { across: parsed.across, down: parsed.down };
+    st.warnings = parsed.warnings;
+  }
+
   function stepClues() {
-    const status = h('p', { class: 'status', 'aria-live': 'polite' });
+    const token = ++st.clueToken;
+    const status = h('p', { class: 'status', 'aria-live': 'polite' }, st.clueStatus);
+    const setStatus = (m) => {
+      st.clueStatus = m;
+      if (status.isConnected) status.textContent = m;
+    };
     const ta = h('textarea', {
       id: 'clue-text',
       class: 'text-area',
       rows: 8,
-      placeholder: 'Paste or type the clues here, for example:\nACROSS\n1 A student a lout brains\n3 Sap wanting a dated jet\nDOWN\n1 Clear clue contents cops',
+      placeholder: 'ACROSS\n1 A student a lout brains\n3 Sap wanting a dated jet\nDOWN\n1 Clear clue contents cops',
       spellcheck: 'false',
       'aria-label': 'Clue text',
     });
     ta.value = st.clueText;
     ta.addEventListener('input', () => { st.clueText = ta.value; });
 
-    // photo panel for reading text from the picture
+    // ---- the picture, with boxes showing what was read
     let srcPanel = null;
+    let view = null;
+    let drawBtn = null;
+    const boxEls = [];
+    function showBoxes() {
+      boxEls.forEach((b) => b.remove());
+      boxEls.length = 0;
+      if (!view || !st.boxes) return;
+      const cv = view.querySelector('canvas');
+      for (const [name, b] of Object.entries(st.boxes)) {
+        const label = name === 'across' ? 'Across' : name === 'down' ? 'Down' : 'Clues';
+        const el = h('div', { class: 'selbox' }, h('span', null, label));
+        el.style.left = (b.x / cv.width) * 100 + '%';
+        el.style.top = (b.y / cv.height) * 100 + '%';
+        el.style.width = (b.w / cv.width) * 100 + '%';
+        el.style.height = (b.h / cv.height) * 100 + '%';
+        view.append(el);
+        boxEls.push(el);
+      }
+    }
     if (st.src) {
       const cv = h('canvas', { class: 'src-canvas' });
       cv.width = st.src.width;
       cv.height = st.src.height;
       cv.getContext('2d').drawImage(st.src, 0, 0);
-      const selbox = h('div', { class: 'selbox', hidden: true });
-      const view = h('div', { class: 'src-view drawing' }, cv, selbox);
+      view = h('div', { class: 'src-view' }, cv);
       let start = null;
+      let drag = null;
+      const dragEl = h('div', { class: 'selbox draft' });
       const pos = (e) => {
         const r = cv.getBoundingClientRect();
         return [Math.min(cv.width, Math.max(0, ((e.clientX - r.left) / r.width) * cv.width)), Math.min(cv.height, Math.max(0, ((e.clientY - r.top) / r.height) * cv.height))];
       };
-      const showBox = () => {
-        if (!st.box) {
-          selbox.hidden = true;
-          return;
-        }
-        selbox.hidden = false;
-        selbox.style.left = (st.box.x / cv.width) * 100 + '%';
-        selbox.style.top = (st.box.y / cv.height) * 100 + '%';
-        selbox.style.width = (st.box.w / cv.width) * 100 + '%';
-        selbox.style.height = (st.box.h / cv.height) * 100 + '%';
+      const showDrag = () => {
+        dragEl.style.left = (drag.x / cv.width) * 100 + '%';
+        dragEl.style.top = (drag.y / cv.height) * 100 + '%';
+        dragEl.style.width = (drag.w / cv.width) * 100 + '%';
+        dragEl.style.height = (drag.h / cv.height) * 100 + '%';
       };
       view.addEventListener('pointerdown', (e) => {
         if (!view.classList.contains('drawing')) return;
         e.preventDefault();
         view.setPointerCapture(e.pointerId);
         start = pos(e);
-        st.box = { x: start[0], y: start[1], w: 0, h: 0 };
-        showBox();
+        drag = { x: start[0], y: start[1], w: 0, h: 0 };
+        view.append(dragEl);
+        showDrag();
       });
       view.addEventListener('pointermove', (e) => {
         if (!start) return;
         const q = pos(e);
-        st.box = { x: Math.min(start[0], q[0]), y: Math.min(start[1], q[1]), w: Math.abs(q[0] - start[0]), h: Math.abs(q[1] - start[1]) };
-        showBox();
-        readBtn.disabled = !(st.box.w > 20 && st.box.h > 20);
+        drag = { x: Math.min(start[0], q[0]), y: Math.min(start[1], q[1]), w: Math.abs(q[0] - start[0]), h: Math.abs(q[1] - start[1]) };
+        showDrag();
       });
-      const end = () => { start = null; };
-      view.addEventListener('pointerup', end);
-      view.addEventListener('pointercancel', end);
-      const drawBtn = btn('Drawing a box: on', () => {
-        const on = view.classList.toggle('drawing');
-        drawBtn.textContent = on ? 'Drawing a box: on' : 'Drawing a box: off (scroll and zoom)';
-      }, 'quiet');
-      const readBtn = btn('Read this area', async () => {
-        if (!st.box || st.box.w < 20 || st.box.h < 20) return;
-        readBtn.disabled = true;
-        status.textContent = 'Loading the text reader…';
-        try {
-          const r = await recognize(cropRect(st.src, st.box.x, st.box.y, st.box.w, st.box.h), {
-            mode: 'text',
-            onProgress: (s, p) => { status.textContent = `Reading… ${Math.round(p * 100)}%`; },
-          });
-          st.clueText = (ta.value.trim() ? ta.value.trim() + '\n' : '') + r.text;
-          ta.value = st.clueText;
-          status.textContent = r.text ? 'Added the text below. Check it, then sort it into Across and Down.' : 'Nothing readable in that box. Try a tighter box around one column of clues.';
-        } catch (e) {
-          status.textContent = '';
-          toast(OCR_FAILED, 6000);
-        } finally {
-          readBtn.disabled = false;
+      const end = async () => {
+        if (!start) return;
+        start = null;
+        dragEl.remove();
+        if (drag && drag.w > 30 && drag.h > 30) {
+          view.classList.remove('drawing');
+          drawBtn.textContent = 'Draw a box round the clues';
+          await runRead(() => readClueBox(st.src, drag, setStatus));
         }
-      });
-      readBtn.disabled = true;
+      };
+      view.addEventListener('pointerup', end);
+      view.addEventListener('pointercancel', () => { start = null; dragEl.remove(); });
+      drawBtn = btn('Draw a box round the clues', () => {
+        const on = view.classList.toggle('drawing');
+        drawBtn.textContent = on ? 'Now drag over the clues' : 'Draw a box round the clues';
+        if (on) setStatus('Drag a box over the Across and Down lists (both together is fine).');
+      }, '');
       srcPanel = h(
         'div',
         { class: 'src-panel' },
-        h('h3', null, 'Read the clues from the picture'),
-        h('p', { class: 'muted' }, 'Draw a box around one column of clues, then read it. Repeat for each column. On iPad you can also press and hold the clue text in the original photo to copy it, then paste below.'),
+        h('h3', null, 'Where I read the clues'),
         view,
-        h('div', { class: 'row' }, drawBtn, readBtn)
+        h('div', { class: 'row' }, btn('Read again', () => { st.clueState = 'idle'; stepClues(); }, 'quiet'), drawBtn)
       );
+      showBoxes();
     }
 
+    // ---- the editable list of clues
     const tables = h('div', { class: 'clue-edit-wrap' });
     function renderTables() {
       tables.textContent = '';
+      const anyCounts = st.clues.across.concat(st.clues.down).some((c) => c.enumeration);
       for (const dir of ['across', 'down']) {
         const list = st.clues[dir];
-        const tbl = h('div', { class: 'clue-edit' }, h('h3', null, dir === 'across' ? 'Across' : 'Down'));
+        const tbl = h('div', { class: 'clue-edit' }, h('h3', null, `${dir === 'across' ? 'Across' : 'Down'} (${list.length})`));
         list.forEach((c, idx) => {
-          const row = h('div', { class: 'ce-row' });
+          const row = h('div', { class: 'ce-row' + (anyCounts ? ' with-count' : '') });
           const num = h('input', { id: `ce-${dir}-${idx}-n`, class: 'text-input ce-n', value: c.number, inputmode: 'numeric', 'aria-label': 'Clue number' });
           const txt = h('input', { id: `ce-${dir}-${idx}-t`, class: 'text-input ce-t', value: c.text, 'aria-label': 'Clue text' });
-          const en = h('input', { id: `ce-${dir}-${idx}-e`, class: 'text-input ce-e', value: c.enumeration, placeholder: 'letters', inputmode: 'text', 'aria-label': 'Letter count' });
+          const en = h('input', { id: `ce-${dir}-${idx}-e`, class: 'text-input ce-e', value: c.enumeration, placeholder: 'letters', inputmode: 'text', 'aria-label': 'Letter count (optional)' });
           num.addEventListener('input', () => { c.number = parseInt(num.value, 10) || 0; });
           txt.addEventListener('input', () => { c.text = txt.value; });
           en.addEventListener('input', () => { c.enumeration = en.value.replace(/[()]/g, ''); c.length = parseEnumeration(en.value).length; });
           const del = h('button', { class: 'btn quiet', type: 'button', 'aria-label': 'Delete clue', onclick: () => { list.splice(idx, 1); renderTables(); } }, '×');
-          row.append(num, txt, en, del);
+          row.append(...(anyCounts ? [num, txt, en, del] : [num, txt, del]));
           tbl.append(row);
         });
         tbl.append(
@@ -476,40 +583,79 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         );
         tables.append(tbl);
       }
-      if (st.warnings.length) {
-        tables.append(h('ul', { class: 'problems warn-list' }, st.warnings.slice(0, 10).map((w) => h('li', null, w))));
+      if (st.warnings.length) tables.append(h('ul', { class: 'problems warn-list' }, st.warnings.slice(0, 10).map((w) => h('li', null, w))));
+    }
+    renderTables();
+
+    async function runRead(fn) {
+      st.clueState = 'reading';
+      status.classList.add('busy');
+      try {
+        const r = await fn();
+        if (token !== st.clueToken) return;
+        if (!r || !r.text.trim()) {
+          st.clueState = 'failed';
+          setStatus("I couldn't find the clue lists. Use \"Draw a box round the clues\", or paste them below.");
+          return;
+        }
+        st.boxes = r.boxes;
+        applyClueText(r.text);
+        st.clueState = 'done';
+        setStatus(`Found ${st.clues.across.length} across and ${st.clues.down.length} down clues. Check them below and fix any slips.`);
+        showBoxes();
+        renderTables();
+        ta.value = st.clueText;
+      } catch (e) {
+        if (token !== st.clueToken) return;
+        st.clueState = 'failed';
+        setStatus(OCR_FAILED);
+      } finally {
+        status.classList.remove('busy');
       }
     }
     function sortText() {
-      const parsed = parseClues(ta.value);
-      st.clues = { across: parsed.across, down: parsed.down };
-      st.warnings = parsed.warnings;
+      applyClueText(ta.value);
       renderTables();
-      status.textContent = `Found ${parsed.across.length} across and ${parsed.down.length} down clues. Fix anything that looks wrong below.`;
+      setStatus(`Sorted into ${st.clues.across.length} across and ${st.clues.down.length} down clues.`);
     }
-    renderTables();
+    function start() {
+      if (!st.clues.across.length && !st.clues.down.length && ta.value.trim()) sortText();
+      if (!st.clues.across.length && !st.clues.down.length) {
+        toast('Add the clues first. The app works out the grid from the clue numbers.', 4000);
+        return;
+      }
+      onDone(buildPuzzle());
+    }
+
+    const paste = h(
+      'details',
+      { class: 'paste', open: !st.src || st.clueState === 'failed' },
+      h('summary', null, 'Paste or type the clues instead'),
+      h('p', { class: 'muted' }, 'On iPad, press and hold the clue text in your picture and choose Copy, then paste here. Put ACROSS and DOWN on their own lines.'),
+      ta,
+      h('div', { class: 'row' }, btn('Sort into Across and Down', sortText, ''))
+    );
 
     shell(
       4,
       h(
         'div',
         { class: 'panel wide' },
-        h('h2', null, 'Add the clues'),
-        h('p', null, 'Each clue needs its number. Letter counts such as (5) or (3,4) are optional: when the paper does not print them, the app works out the black squares from the clue numbers alone, and you can add counts later as you solve answers.'),
-        h('div', { class: 'clues-layout' }, srcPanel, h('div', { class: 'text-panel' }, h('label', { for: 'clue-text', class: 'lbl' }, 'Clue text'), ta, h('div', { class: 'row' }, btn('Sort into Across and Down', sortText, 'primary')), status)),
-        tables,
-        nav(
-          btn('‹ Back', () => (blank ? onCancel() : go(3)), 'quiet'),
-          btn('Finish ›', () => {
-            if (!st.clues.across.length && !st.clues.down.length && ta.value.trim()) sortText();
-            go(5);
-          }, 'primary')
-        )
+        h('h2', null, 'Clues'),
+        h('p', null, 'The app works out where the black squares go from the clue numbers, so every number needs to be there. Letter counts such as (5) are optional.'),
+        status,
+        h('div', { class: 'clues-layout' }, srcPanel, tables),
+        paste,
+        nav(btn('‹ Back', () => (blank ? onCancel() : go(3)), 'quiet'), btn('Start puzzle ›', start, 'primary'))
       )
     );
+
+    // read the clues automatically the first time we get here
+    if (st.src && st.clueState === 'idle') runRead(() => findClues(st.src, gridRect(), setStatus));
+    else if (st.clueState === 'reading') setStatus(st.clueStatus);
   }
 
-  // ---------------------------------------------------------------- 5. finish
+  // ---------------------------------------------------------------- build
   function buildPuzzle() {
     const R = st.rows;
     const C = st.cols;
@@ -535,52 +681,6 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       settings: { symmetry: st.symmetry },
       sourceImage: st.src ? sourceThumbnail(st.src) : null,
     });
-  }
-
-  function stepFinish() {
-    const titleIn = h('input', { id: 'puz-title', class: 'text-input', value: st.title, maxlength: 60, 'aria-label': 'Puzzle name' });
-    titleIn.addEventListener('input', () => { st.title = titleIn.value; });
-    const out = h('div', { class: 'result', 'aria-live': 'polite' });
-    const nA = st.clues.across.length;
-    const nD = st.clues.down.length;
-    const given = st.cells.filter((c) => c.kind !== 'none').length;
-
-    async function check() {
-      out.textContent = '';
-      if (!nA && !nD) {
-        out.append(h('p', { class: 'error' }, 'There are no clues yet, so the layout cannot be checked.'));
-        return;
-      }
-      out.append(h('p', { class: 'muted' }, 'Checking…'));
-      const res = await runSolver(optionsFromPuzzle(buildPuzzle(), { maxSolutions: 500 }));
-      out.textContent = '';
-      if (res.count === 0 && res.capped) out.append(h('p', null, 'This is too open to check yet. That is normal when few squares are printed. You can still play.'));
-      else if (res.count === 0) out.append(h('p', { class: 'error' }, 'No grid layout fits these clues and printed squares. Look for a missing or wrong clue number (every number from 1 up needs a clue), a wrong grid size or symmetry, or a printed square read in the wrong place.'));
-      else if (res.unique) out.append(h('p', { class: 'ok-text' }, 'These clues fit exactly one layout. The app can give you the whole grid pattern.'));
-      else if (res.complete) out.append(h('p', { class: 'ok-text' }, `${res.count} layouts fit these clues. The app can place the black squares they all share, and you can narrow it down by adding letter counts as you solve.`));
-      else out.append(h('p', null, 'Many layouts fit so far. Hints will sharpen as you place squares and add letter counts.'));
-    }
-
-    shell(
-      5,
-      h(
-        'div',
-        { class: 'panel narrow' },
-        h('h2', null, 'Ready to play'),
-        h('label', { class: 'field', for: 'puz-title' }, h('span', null, 'Name'), titleIn),
-        h(
-          'ul',
-          { class: 'summary' },
-          h('li', null, `${st.cols} columns × ${st.rows} rows`),
-          h('li', null, `Symmetry: ${SYMMETRY[st.symmetry].split(':')[0]}`),
-          h('li', null, `${nA} across and ${nD} down clues`),
-          h('li', null, `${given} printed square${given === 1 ? '' : 's'} (black, number or letter)`)
-        ),
-        h('div', { class: 'row' }, btn('Check clues against the grid', check, '')),
-        out,
-        nav(btn('‹ Back', () => go(4), 'quiet'), btn('Start puzzle', () => onDone(buildPuzzle()), 'primary'))
-      )
-    );
   }
 
   render();

@@ -11,7 +11,7 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 
 ## Layout and conventions
 
-- Pure logic has no DOM access and is covered by tests: `js/model.js`, `js/solver.js`, `js/clueParser.js`, `js/gridDetect.js`. Keep it that way. Anything that touches `document`, `canvas` or `localStorage` lives elsewhere (`js/imageImport.js`, `js/ocr.js`, `js/storage.js`, `js/play.js`, `js/importFlow.js`, `js/ui/*`).
+- Pure logic has no DOM access and is covered by tests: `js/model.js`, `js/solver.js`, `js/clueParser.js`, `js/clueFinder.js`, `js/gridDetect.js`. Keep it that way. Anything that touches `document`, `canvas` or `localStorage` lives elsewhere (`js/imageImport.js`, `js/ocr.js`, `js/storage.js`, `js/play.js`, `js/importFlow.js`, `js/ui/*`).
 - Add a test whenever you change pure logic. Tests live in `tests/` and use `node:test`.
 - All colours are CSS tokens on `:root` in `css/styles.css`, with a dark theme under `prefers-color-scheme: dark`. Do not hard-code colours in components.
 - Never use `alert()`, `confirm()` or `prompt()`. Use `dialog`, `confirmDialog` and `inputDialog` from `js/ui/dom.js`.
@@ -31,8 +31,10 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 
 ## Gotchas
 
-- Bump `CACHE` in `sw.js` (currently `skeleton-v2`) on every release and update its `SHELL` list when you add, rename or remove a file. The new cache name is what stops installed copies running a mix of old and new modules; `cache.addAll` also fails the whole install if one listed file is missing.
+- Bump `CACHE` in `sw.js` (currently `skeleton-v3`) on every release and update its `SHELL` list when you add, rename or remove a file. The new cache name is what stops installed copies running a mix of old and new modules; `cache.addAll` also fails the whole install if one listed file is missing.
 - Grid size detection (`detectGridDims`) prefers the largest size that scores close to the best, because a 15 grid also has the line positions of a 5 grid, and it tries nearby row counts because a skewed photo distorts the aspect ratio. Grid finding (`detectQuads`) keys on groups of long parallel lines with the same extent, which ignores title bars and form underlines; it returns several candidates because a newspaper page can hold more than one crossword. `.local-test/` (git-ignored) is where to put a real page image for trying the importer; never commit one.
+- Import reads the page with Tesseract in `recognizeWords()` (`js/ocr.js`), which returns every word with its box and is cached per canvas. The same read is used three ways: judging orientation (`fixOrientation` in `js/imageImport.js` tries the rotations that fit the grid's shape and keeps the one with the most confidently read words), then locating the clue lists (`locateClues`), then a careful second read of each list. Word boxes can be several lines tall when the reader merges text, so `clueFinder` judges line height by the typical word and ignores oversize boxes.
+- The on-screen keyboard is `settings.keyboard`: `auto` (shown after tapping a square, hidden by its Hide button or in Squares mode), `always` or `never`. Keep the clue lists as the default focus.
 - There is no answer key, so never claim answers are correct, only that the grid is complete.
 - The sample puzzle is invented. Do not add real newspaper puzzles or clues to the repository.
 

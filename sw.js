@@ -1,10 +1,10 @@
 // Offline support: stale-while-revalidate for the app shell and for the library files
 // fetched from CDNs (OCR engine, PDF reader, word list, fonts).
-const CACHE = 'skeleton-v2';
+const CACHE = 'skeleton-v3';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/main.js', 'js/model.js', 'js/solver.js', 'js/solverWorker.js', 'js/solverClient.js',
-  'js/clueParser.js', 'js/storage.js', 'js/gridDetect.js', 'js/imageImport.js', 'js/ocr.js',
+  'js/clueParser.js', 'js/clueFinder.js', 'js/clueReader.js', 'js/storage.js', 'js/gridDetect.js', 'js/imageImport.js', 'js/ocr.js',
   'js/importFlow.js', 'js/play.js', 'js/ui/dom.js', 'js/ui/grid.js', 'js/ui/clues.js',
   'js/ui/keyboard.js', 'js/ui/wordFinder.js', 'samples/sample-skeleton.json',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',

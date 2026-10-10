@@ -4,10 +4,10 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 
 ## Commands
 
-- Serve locally: `python -m http.server 8080`, then open `http://localhost:8080/?nosw`. The `?nosw` flag skips the service worker and clears its cache, which you want while editing (otherwise you see stale files).
+- Serve locally: `python tools/serve.py 8080`, then open `http://localhost:8080/?nosw`. That server sends `Cache-Control: no-store`; the `?nosw` flag skips the service worker and clears its cache. You need both while editing, otherwise the browser mixes old and new modules and the page comes up blank. If it still does, refresh each file with `fetch(url, { cache: 'reload' })` and reload.
 - Tests: `node --test tests/` (Node 20, no install step, no dependencies).
 - Regenerate icons: `python tools/make-icons.py`.
-- Rebuild the sample puzzle: `node tools/build-sample.mjs`.
+- Rebuild the sample puzzle: `node tools/build-sample.mjs` (writes `samples/sample-skeleton.json`; it checks that the intended layout is among the solver's solutions).
 
 ## Layout and conventions
 
@@ -21,16 +21,18 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 
 ## How the pieces fit
 
-- A puzzle is `{ size, cells[], clues:{across,down}, settings, ... }` (see `js/model.js`). `cells[i].block` is the player's black square; `givenBlock`, `givenNumber` and `givenLetter` are hints printed in the source and are locked.
+- A puzzle is `{ rows, cols, cells[], clues:{across,down}, settings, ... }` (see `js/model.js`). Grids are rectangular: the Sunday Express skeleton is 15 columns by 11 rows. Version 1 files had one square `size` and half-turn symmetry; `fromJSON` still reads them. `cells[i].block` is the player's black square; `givenBlock`, `givenNumber` and `givenLetter` are hints printed in the source and are locked.
 - Numbering and slots are always derived from the blocks (`computeNumbering`), never stored. Clues are matched to slots by number and direction (`matchClues`).
-- The layout solver (`solveLayout`) searches for black-square patterns that agree with the clue numbers and lengths. It runs in a Web Worker via `js/solverClient.js` and falls back to the main thread.
+- Symmetry is `settings.symmetry`: `mirror4` (reflect top/bottom and left/right, up to three copies of a square; the Sunday Express rule), `rotational` (half turn) or `none`. `symmetryTargets()` in `js/model.js` is the single definition; the solver and the play screen both use it.
+- The layout solver (`solveLayout`) searches for black-square patterns that agree with the clue numbers. Letter counts are optional: a clue with `length` 0 only fixes which numbers start an across or down word, and the real Sunday Express puzzle has no counts, so it usually has several valid layouts (about 10). It runs in a Web Worker via `js/solverClient.js` and falls back to the main thread.
+- Treat solver output carefully. `result.complete` is true only when every solution was found (neither the node cap nor `maxSolutions` stopped the search). A square is only certain when it is black in *all* solutions of a complete result, so hints and "reveal" must check `complete` first. `play.js` asks for up to 3000 solutions for that reason.
 - `js/play.js` owns all play state. Edits go through `commit()` so undo and redo, autosave and re-rendering stay consistent.
 - Layout help (check, hint, reveal) is opt-in because it gives hints about the grid pattern. Do not show layout feedback by default.
 
 ## Gotchas
 
-- Bump `CACHE` in `sw.js` and update its `SHELL` list when you add, rename or remove a file, or installed copies will serve stale or missing files. `cache.addAll` fails the whole install if one listed file is missing.
-- Grid size detection prefers the largest size that scores close to the best, because a 15 grid also has the line positions of a 5 grid. Check this if you change the scoring.
+- Bump `CACHE` in `sw.js` (currently `skeleton-v2`) on every release and update its `SHELL` list when you add, rename or remove a file. The new cache name is what stops installed copies running a mix of old and new modules; `cache.addAll` also fails the whole install if one listed file is missing.
+- Grid size detection (`detectGridDims`) prefers the largest size that scores close to the best, because a 15 grid also has the line positions of a 5 grid, and it tries nearby row counts because a skewed photo distorts the aspect ratio. Grid finding (`detectQuads`) keys on groups of long parallel lines with the same extent, which ignores title bars and form underlines; it returns several candidates because a newspaper page can hold more than one crossword. `.local-test/` (git-ignored) is where to put a real page image for trying the importer; never commit one.
 - There is no answer key, so never claim answers are correct, only that the grid is complete.
 - The sample puzzle is invented. Do not add real newspaper puzzles or clues to the repository.
 

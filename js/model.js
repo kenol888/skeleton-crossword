@@ -1,6 +1,13 @@
 // Puzzle data model, numbering and clue matching. Pure: no DOM.
 
-export const VERSION = 1;
+export const VERSION = 2;
+
+/** Symmetry modes for the black squares. */
+export const SYMMETRY = {
+  mirror4: 'Mirror: top and bottom, left and right',
+  rotational: 'Rotational: upside down',
+  none: 'None',
+};
 
 export function newId() {
   return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -17,18 +24,22 @@ export function createCell() {
   };
 }
 
-export function createPuzzle({ size = 15, title = 'Untitled', clues, cells, settings, sourceImage = null } = {}) {
+/** createPuzzle({ rows, cols }) or createPuzzle({ size }) for a square grid. */
+export function createPuzzle({ rows, cols, size, title = 'Untitled', clues, cells, settings, sourceImage = null } = {}) {
+  rows = rows || size || 11;
+  cols = cols || size || 15;
   const now = Date.now();
   const p = {
     id: newId(),
     title,
     createdAt: now,
     updatedAt: now,
-    size,
-    cells: cells || Array.from({ length: size * size }, createCell),
+    rows,
+    cols,
+    cells: cells || Array.from({ length: rows * cols }, createCell),
     clues: clues || { across: [], down: [] },
     sourceImage,
-    settings: Object.assign({ symmetry: 'rotational' }, settings || {}),
+    settings: Object.assign({ symmetry: 'mirror4' }, settings || {}),
     elapsedMs: 0,
   };
   for (const c of p.cells) {
@@ -38,9 +49,27 @@ export function createPuzzle({ size = 15, title = 'Untitled', clues, cells, sett
   return p;
 }
 
-/** Index of the cell diagonally opposite (180 degree rotation). */
-export function mirror(idx, size) {
-  return size * size - 1 - idx;
+/**
+ * The other squares that must match square `idx` under a symmetry mode.
+ * mirror4: reflected top/bottom, left/right and both (up to 3 others).
+ * rotational: the square diagonally opposite (half turn).
+ */
+export function symmetryTargets(idx, rows, cols, mode) {
+  const r = Math.floor(idx / cols);
+  const c = idx % cols;
+  const out = [];
+  const add = (rr, cc) => {
+    const j = rr * cols + cc;
+    if (j !== idx && !out.includes(j)) out.push(j);
+  };
+  if (mode === 'mirror4') {
+    add(rows - 1 - r, c);
+    add(r, cols - 1 - c);
+    add(rows - 1 - r, cols - 1 - c);
+  } else if (mode === 'rotational') {
+    add(rows - 1 - r, cols - 1 - c);
+  }
+  return out;
 }
 
 /** Parse "4-7", "3,4", "2,3,4", "(5)" -> { length, parts } */
@@ -62,32 +91,33 @@ export function makeClue(number, text, enumeration) {
 }
 
 /**
- * Standard crossword numbering. `puzzle` needs { size, cells:[{block}] }.
- * Returns { numbers:Int[N*N], slots:[{number,dir,cells,length}] }
+ * Standard crossword numbering. `puzzle` needs { rows, cols, cells:[{block}] }.
+ * Returns { numbers:Int[rows*cols] (0 = none), slots:[{number,dir,cells,length}] }
  */
 export function computeNumbering(puzzle) {
-  const N = puzzle.size;
+  const R = puzzle.rows;
+  const C = puzzle.cols;
   const cells = puzzle.cells;
-  const white = (r, c) => r >= 0 && c >= 0 && r < N && c < N && !cells[r * N + c].block;
-  const numbers = new Array(N * N).fill(0);
+  const white = (r, c) => r >= 0 && c >= 0 && r < R && c < C && !cells[r * C + c].block;
+  const numbers = new Array(R * C).fill(0);
   const slots = [];
   let next = 1;
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
       if (!white(r, c)) continue;
       const startsAcross = !white(r, c - 1) && white(r, c + 1);
       const startsDown = !white(r - 1, c) && white(r + 1, c);
       if (!startsAcross && !startsDown) continue;
       const number = next++;
-      numbers[r * N + c] = number;
+      numbers[r * C + c] = number;
       if (startsAcross) {
         const idxs = [];
-        for (let cc = c; white(r, cc); cc++) idxs.push(r * N + cc);
+        for (let cc = c; white(r, cc); cc++) idxs.push(r * C + cc);
         slots.push({ number, dir: 'across', cells: idxs, length: idxs.length });
       }
       if (startsDown) {
         const idxs = [];
-        for (let rr = r; white(rr, c); rr++) idxs.push(rr * N + c);
+        for (let rr = r; white(rr, c); rr++) idxs.push(rr * C + c);
         slots.push({ number, dir: 'down', cells: idxs, length: idxs.length });
       }
     }
@@ -98,7 +128,7 @@ export function computeNumbering(puzzle) {
 /**
  * Match each clue to a slot.
  * Returns { across:[{clue,slot,status}], down:[...], orphanSlots:[slot] }
- * status: 'ok' | 'length-mismatch' | 'missing'
+ * status: 'ok' | 'length-mismatch' | 'missing'. A clue with no letter count is 'ok' once a word starts there.
  */
 export function matchClues(puzzle, numbering) {
   const out = { across: [], down: [], orphanSlots: [] };
@@ -141,9 +171,13 @@ export function toJSON(p) {
 
 export function fromJSON(input) {
   const o = typeof input === 'string' ? JSON.parse(input) : input;
-  if (!o || typeof o !== 'object' || !Array.isArray(o.cells) || !o.size) throw new Error('Not a puzzle file');
-  if (o.cells.length !== o.size * o.size) throw new Error('Grid size does not match cell count');
-  const p = createPuzzle({ size: o.size, title: o.title || 'Untitled' });
+  if (!o || typeof o !== 'object' || !Array.isArray(o.cells)) throw new Error('Not a puzzle file');
+  // version 1 files had one square `size`
+  const rows = o.rows || o.size;
+  const cols = o.cols || o.size;
+  if (!rows || !cols) throw new Error('Not a puzzle file');
+  if (o.cells.length !== rows * cols) throw new Error('Grid size does not match cell count');
+  const p = createPuzzle({ rows, cols, title: o.title || 'Untitled' });
   p.id = o.id || p.id;
   p.createdAt = o.createdAt || p.createdAt;
   p.updatedAt = o.updatedAt || p.updatedAt;
@@ -153,7 +187,9 @@ export function fromJSON(input) {
     down: (o.clues && o.clues.down ? o.clues.down : []).map((c) => makeClueFrom(c)),
   };
   p.sourceImage = o.sourceImage || null;
-  p.settings = Object.assign({ symmetry: 'rotational' }, o.settings || {});
+  const legacy = o.version === 1 || !o.version;
+  p.settings = Object.assign({ symmetry: legacy ? 'rotational' : 'mirror4' }, o.settings || {});
+  if (!SYMMETRY[p.settings.symmetry]) p.settings.symmetry = 'none';
   p.elapsedMs = o.elapsedMs || 0;
   return p;
 }
@@ -166,11 +202,13 @@ function makeClueFrom(c) {
 }
 
 /** Build a puzzle from rows of text: '#' block, anything else white. For tests and tools. */
-export function fromPattern(rows) {
-  const size = rows.length;
-  const p = createPuzzle({ size });
-  rows.forEach((row, r) => {
-    for (let c = 0; c < size; c++) p.cells[r * size + c].block = row[c] === '#';
+export function fromPattern(rowStrings, settings) {
+  const rows = rowStrings.length;
+  const cols = rowStrings[0].length;
+  const p = createPuzzle({ rows, cols, settings });
+  rowStrings.forEach((row, r) => {
+    if (row.length !== cols) throw new Error('Rows must all be the same length');
+    for (let c = 0; c < cols; c++) p.cells[r * cols + c].block = row[c] === '#';
   });
   return p;
 }

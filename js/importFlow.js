@@ -1,13 +1,13 @@
 // New-puzzle wizard: photo or PDF -> corners -> grid hints -> clues -> finish.
 // "Blank puzzle" skips the first three steps.
 import { h, toast, dialog, inputDialog } from './ui/dom.js';
-import { createCell, createPuzzle, makeClue, parseEnumeration } from './model.js';
+import { createCell, createPuzzle, makeClue, parseEnumeration, SYMMETRY } from './model.js';
 import { parseClues } from './clueParser.js';
 import { optionsFromPuzzle } from './solver.js';
 import { runSolver } from './solverClient.js';
 import { recognize, OCR_FAILED } from './ocr.js';
 import {
-  isPdf, loadImageFile, openPdf, autoQuad, straighten, analyseGrid, greyToCanvas, cropCellRegion, cropRect, sourceThumbnail, WARP_SIZE,
+  isPdf, loadImageFile, openPdf, autoQuads, straighten, analyseGrid, greyToCanvas, cropCellRegion, cropRect, sourceThumbnail,
 } from './imageImport.js';
 
 const STEP_NAMES = ['Photo', 'Corners', 'Grid', 'Clues', 'Finish'];
@@ -16,14 +16,18 @@ function dateTitle() {
   return 'Skeleton ' + new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function startImport({ container, blank = false, size = 15, title = '', onDone, onCancel }) {
+export function startImport({ container, blank = false, rows = 11, cols = 15, title = '', onDone, onCancel }) {
   const st = {
     step: blank ? 4 : 1,
     src: null,
     quad: null,
+    quads: [],
+    quadIdx: 0,
     warped: null,
-    N: size,
-    cells: Array.from({ length: size * size }, () => ({ kind: 'none', value: '', maybe: null })),
+    rows,
+    cols,
+    symmetry: 'mirror4',
+    cells: Array.from({ length: rows * cols }, () => ({ kind: 'none', value: '', maybe: null })),
     clueText: '',
     clues: { across: [], down: [] },
     warnings: [],
@@ -87,7 +91,9 @@ export function startImport({ container, blank = false, size = 15, title = '', o
         }
         status.textContent = 'Looking for the grid…';
         await new Promise((r) => setTimeout(r, 20));
-        st.quad = autoQuad(st.src);
+        st.quads = autoQuads(st.src);
+        st.quadIdx = 0;
+        st.quad = st.quads[0].map((q) => q.slice());
         go(2);
       } catch (e) {
         status.textContent = '';
@@ -180,14 +186,18 @@ export function startImport({ container, blank = false, size = 15, title = '', o
         status,
         nav(
           btn('‹ Choose another', () => go(1), 'quiet'),
-          btn('Reset corners', () => { st.quad = autoQuad(st.src); draw(); }, 'quiet'),
+          st.quads.length > 1 ? btn('Try another grid on the page', () => {
+            st.quadIdx = (st.quadIdx + 1) % st.quads.length;
+            st.quad = st.quads[st.quadIdx].map((q) => q.slice());
+            draw();
+          }, 'quiet') : null,
+          btn('Reset corners', () => { st.quad = st.quads[st.quadIdx].map((q) => q.slice()); draw(); }, 'quiet'),
           btn('Straighten grid ›', async () => {
             status.textContent = 'Straightening…';
             await new Promise((r) => setTimeout(r, 20));
             try {
               st.warped = straighten(st.src, st.quad);
-              const a = analyseGrid(st.warped.dark, 0);
-              applyAnalysis(a);
+              applyAnalysis(analyseGrid(st.warped));
               go(3);
             } catch (e) {
               status.textContent = '';
@@ -200,7 +210,8 @@ export function startImport({ container, blank = false, size = 15, title = '', o
   }
 
   function applyAnalysis(a) {
-    st.N = a.N;
+    st.rows = a.rows;
+    st.cols = a.cols;
     st.cells = a.hints.map((hh) => ({
       kind: hh.block ? 'block' : 'none',
       value: '',
@@ -211,13 +222,14 @@ export function startImport({ container, blank = false, size = 15, title = '', o
 
   // ---------------------------------------------------------------- 3. grid hints
   function stepGrid() {
-    const N = st.N;
-    const cv = greyToCanvas(st.warped.grey, WARP_SIZE, WARP_SIZE);
+    const R = st.rows;
+    const C = st.cols;
+    const cv = greyToCanvas(st.warped.grey, st.warped.W, st.warped.H);
     cv.className = 'warp-canvas';
-    const over = h('div', { class: 'hint-grid', style: `--n:${N}` });
+    const over = h('div', { class: 'hint-grid', style: `--cols:${C};--rows:${R}` });
     const status = h('p', { class: 'status', 'aria-live': 'polite' });
     const cellEls = st.cells.map((c, i) => {
-      const b = h('button', { class: 'hcell', type: 'button', 'aria-label': `Square ${Math.floor(i / N) + 1}, ${(i % N) + 1}` });
+      const b = h('button', { class: 'hcell', type: 'button', 'aria-label': `Row ${Math.floor(i / C) + 1}, column ${(i % C) + 1}` });
       b.addEventListener('click', () => cycle(i));
       over.append(b);
       return b;
@@ -248,6 +260,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
       c.kind = next;
       c.value = value;
       paintCell(i);
+      refreshCounts();
     }
 
     async function readMarks() {
@@ -268,7 +281,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
           status.textContent = `Reading squares… ${done + 1} of ${capped.length}`;
           let got = false;
           if (c.maybe === 'number' || c.both) {
-            const r = await recognize(cropCellRegion(st.warped.grey, st.N, i, 'number'), { mode: 'digits' });
+            const r = await recognize(cropCellRegion(st.warped, R, C, i, 'number'), { mode: 'digits' });
             const t = r.text.replace(/\D/g, '');
             if (t && +t > 0 && +t < 200 && r.confidence > 30) {
               c.kind = 'number';
@@ -277,7 +290,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
             }
           }
           if (!got && (c.maybe === 'letter' || c.both)) {
-            const r = await recognize(cropCellRegion(st.warped.grey, st.N, i, 'letter'), { mode: 'letter' });
+            const r = await recognize(cropCellRegion(st.warped, R, C, i, 'letter'), { mode: 'letter' });
             const t = r.text.replace(/[^A-Z]/g, '');
             if (t.length === 1 && r.confidence > 30) {
               c.kind = 'letter';
@@ -288,6 +301,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
           done++;
         }
         status.textContent = `Read ${capped.length} squares. Tap any square to correct it.`;
+        refreshCounts();
       } catch (e) {
         status.textContent = '';
         toast(OCR_FAILED, 6000);
@@ -296,35 +310,48 @@ export function startImport({ container, blank = false, size = 15, title = '', o
       }
     }
 
-    function setSize(n) {
-      n = Math.min(25, Math.max(5, n));
-      st.N = n;
-      const a = analyseGrid(st.warped.dark, n);
-      applyAnalysis(a);
+    // changing the size re-reads the hints for the new grid
+    function setDims(rows, cols) {
+      st.rows = Math.min(25, Math.max(3, rows));
+      st.cols = Math.min(25, Math.max(3, cols));
+      applyAnalysis(analyseGrid(st.warped, st.rows, st.cols));
       stepGrid();
     }
     const readBtn = btn('Read printed numbers and letters', readMarks, '');
-    const counts = () => {
+    const counts = h('span', { class: 'muted' });
+    function refreshCounts() {
       const b = st.cells.filter((c) => c.kind === 'block').length;
-      return `${b} black square${b === 1 ? '' : 's'} printed`;
-    };
+      const n = st.cells.filter((c) => c.kind === 'number').length;
+      const l = st.cells.filter((c) => c.kind === 'letter').length;
+      counts.textContent = `${b} black, ${n} numbered, ${l} lettered`;
+    }
+    refreshCounts();
+    const stepper = (label, value, onChange) =>
+      h(
+        'div',
+        { class: 'stepper' },
+        h('span', null, label),
+        h('button', { class: 'btn', type: 'button', 'aria-label': 'Fewer ' + label.toLowerCase(), onclick: () => onChange(value - 1) }, '−'),
+        h('strong', { class: 'size-val' }, String(value)),
+        h('button', { class: 'btn', type: 'button', 'aria-label': 'More ' + label.toLowerCase(), onclick: () => onChange(value + 1) }, '+')
+      );
+    const symSeg = h(
+      'div',
+      { class: 'seg', role: 'group', 'aria-label': 'Black square symmetry' },
+      Object.entries(SYMMETRY).map(([k, label]) =>
+        h('button', { type: 'button', class: 'seg-btn' + (st.symmetry === k ? ' on' : ''), onclick: () => { st.symmetry = k; stepGrid(); } }, label.split(':')[0])
+      )
+    );
     shell(
       3,
       h(
         'div',
         { class: 'panel' },
         h('h2', null, 'Check the grid'),
-        h('p', null, 'Skeleton grids usually show just a few black squares, numbers or letters. Tap a square to cycle: blank, black, number, letter. A ? marks ink that needs reading.'),
-        h(
-          'div',
-          { class: 'size-row' },
-          h('span', null, 'Grid size'),
-          h('button', { class: 'btn', type: 'button', 'aria-label': 'Smaller grid', onclick: () => setSize(st.N - 1) }, '−'),
-          h('strong', { class: 'size-val' }, `${N} × ${N}`),
-          h('button', { class: 'btn', type: 'button', 'aria-label': 'Larger grid', onclick: () => setSize(st.N + 1) }, '+'),
-          h('span', { class: 'muted' }, counts())
-        ),
-        h('div', { class: 'warp-wrap' }, cv, over),
+        h('p', null, 'Skeleton grids show just a few black squares, numbers or letters. Tap a square to cycle: blank, black, number, letter. A ? marks ink that needs reading.'),
+        h('div', { class: 'size-row' }, stepper('Columns', C, (v) => setDims(R, v)), stepper('Rows', R, (v) => setDims(v, C)), counts),
+        h('div', { class: 'size-row' }, h('span', null, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
+        h('div', { class: 'warp-wrap', style: `aspect-ratio:${st.warped.W} / ${st.warped.H}` }, cv, over),
         status,
         nav(btn('‹ Corners', () => go(2), 'quiet'), readBtn, btn('Clues ›', () => go(4), 'primary'))
       )
@@ -338,7 +365,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
       id: 'clue-text',
       class: 'text-area',
       rows: 8,
-      placeholder: 'Paste or type the clues here, for example:\nACROSS\n1 Large wading bird (5)\n8 Friendly (4-7)\nDOWN\n2 Frozen water (3)',
+      placeholder: 'Paste or type the clues here, for example:\nACROSS\n1 A student a lout brains\n3 Sap wanting a dated jet\nDOWN\n1 Clear clue contents cops',
       spellcheck: 'false',
       'aria-label': 'Clue text',
     });
@@ -432,7 +459,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
           const row = h('div', { class: 'ce-row' });
           const num = h('input', { id: `ce-${dir}-${idx}-n`, class: 'text-input ce-n', value: c.number, inputmode: 'numeric', 'aria-label': 'Clue number' });
           const txt = h('input', { id: `ce-${dir}-${idx}-t`, class: 'text-input ce-t', value: c.text, 'aria-label': 'Clue text' });
-          const en = h('input', { id: `ce-${dir}-${idx}-e`, class: 'text-input ce-e', value: c.enumeration, placeholder: '5 or 3,4', inputmode: 'text', 'aria-label': 'Letter count' });
+          const en = h('input', { id: `ce-${dir}-${idx}-e`, class: 'text-input ce-e', value: c.enumeration, placeholder: 'letters', inputmode: 'text', 'aria-label': 'Letter count' });
           num.addEventListener('input', () => { c.number = parseInt(num.value, 10) || 0; });
           txt.addEventListener('input', () => { c.text = txt.value; });
           en.addEventListener('input', () => { c.enumeration = en.value.replace(/[()]/g, ''); c.length = parseEnumeration(en.value).length; });
@@ -468,7 +495,7 @@ export function startImport({ container, blank = false, size = 15, title = '', o
         'div',
         { class: 'panel wide' },
         h('h2', null, 'Add the clues'),
-        h('p', null, 'Each clue needs its number and letter count, such as (5) or (3,4). The app works out where the black squares go from these.'),
+        h('p', null, 'Each clue needs its number. Letter counts such as (5) or (3,4) are optional: when the paper does not print them, the app works out the black squares from the clue numbers alone, and you can add counts later as you solve answers.'),
         h('div', { class: 'clues-layout' }, srcPanel, h('div', { class: 'text-panel' }, h('label', { for: 'clue-text', class: 'lbl' }, 'Clue text'), ta, h('div', { class: 'row' }, btn('Sort into Across and Down', sortText, 'primary')), status)),
         tables,
         nav(
@@ -484,8 +511,9 @@ export function startImport({ container, blank = false, size = 15, title = '', o
 
   // ---------------------------------------------------------------- 5. finish
   function buildPuzzle() {
-    const N = st.N;
-    const cells = Array.from({ length: N * N }, createCell);
+    const R = st.rows;
+    const C = st.cols;
+    const cells = Array.from({ length: R * C }, createCell);
     st.cells.forEach((c, i) => {
       if (c.kind === 'block') {
         cells[i].givenBlock = true;
@@ -499,10 +527,12 @@ export function startImport({ container, blank = false, size = 15, title = '', o
         .sort((a, b) => a.number - b.number)
         .map((c) => makeClue(c.number, c.text, c.enumeration));
     return createPuzzle({
-      size: N,
+      rows: R,
+      cols: C,
       title: st.title.trim() || dateTitle(),
       cells,
       clues: { across: mk(st.clues.across), down: mk(st.clues.down) },
+      settings: { symmetry: st.symmetry },
       sourceImage: st.src ? sourceThumbnail(st.src) : null,
     });
   }
@@ -518,16 +548,17 @@ export function startImport({ container, blank = false, size = 15, title = '', o
     async function check() {
       out.textContent = '';
       if (!nA && !nD) {
-        out.append(h('p', { class: 'error' }, 'There are no clues yet, so the layout cannot be checked. You can still play and add clues later by starting again.'));
+        out.append(h('p', { class: 'error' }, 'There are no clues yet, so the layout cannot be checked.'));
         return;
       }
       out.append(h('p', { class: 'muted' }, 'Checking…'));
-      const res = await runSolver(optionsFromPuzzle(buildPuzzle()));
+      const res = await runSolver(optionsFromPuzzle(buildPuzzle(), { maxSolutions: 500 }));
       out.textContent = '';
-      if (res.capped) out.append(h('p', null, 'Too many layouts fit to say for sure. That is normal when few squares are printed. You can still play.'));
-      else if (res.count === 0) out.append(h('p', { class: 'error' }, 'No grid layout fits these clues and printed squares. Look for a wrong clue number or letter count, or a printed square read in the wrong place.'));
-      else if (res.unique) out.append(h('p', { class: 'ok-text' }, 'These clues fit exactly one layout, so the app can check and hint your black squares.'));
-      else out.append(h('p', null, 'More than one layout fits so far. Hints will still work as you place squares.'));
+      if (res.count === 0 && res.capped) out.append(h('p', null, 'This is too open to check yet. That is normal when few squares are printed. You can still play.'));
+      else if (res.count === 0) out.append(h('p', { class: 'error' }, 'No grid layout fits these clues and printed squares. Look for a missing or wrong clue number (every number from 1 up needs a clue), a wrong grid size or symmetry, or a printed square read in the wrong place.'));
+      else if (res.unique) out.append(h('p', { class: 'ok-text' }, 'These clues fit exactly one layout. The app can give you the whole grid pattern.'));
+      else if (res.complete) out.append(h('p', { class: 'ok-text' }, `${res.count} layouts fit these clues. The app can place the black squares they all share, and you can narrow it down by adding letter counts as you solve.`));
+      else out.append(h('p', null, 'Many layouts fit so far. Hints will sharpen as you place squares and add letter counts.'));
     }
 
     shell(
@@ -537,7 +568,14 @@ export function startImport({ container, blank = false, size = 15, title = '', o
         { class: 'panel narrow' },
         h('h2', null, 'Ready to play'),
         h('label', { class: 'field', for: 'puz-title' }, h('span', null, 'Name'), titleIn),
-        h('ul', { class: 'summary' }, h('li', null, `${st.N} × ${st.N} grid`), h('li', null, `${nA} across and ${nD} down clues`), h('li', null, `${given} printed square${given === 1 ? '' : 's'} (black, number or letter)`)),
+        h(
+          'ul',
+          { class: 'summary' },
+          h('li', null, `${st.cols} columns × ${st.rows} rows`),
+          h('li', null, `Symmetry: ${SYMMETRY[st.symmetry].split(':')[0]}`),
+          h('li', null, `${nA} across and ${nD} down clues`),
+          h('li', null, `${given} printed square${given === 1 ? '' : 's'} (black, number or letter)`)
+        ),
         h('div', { class: 'row' }, btn('Check clues against the grid', check, '')),
         out,
         nav(btn('‹ Back', () => go(4), 'quiet'), btn('Start puzzle', () => onDone(buildPuzzle()), 'primary'))

@@ -28,9 +28,9 @@ export function otsuThreshold(grey) {
   return thr;
 }
 
-/** 1 where the pixel is ink. */
-export function darkMask(grey) {
-  const thr = otsuThreshold(grey);
+/** 1 where the pixel is ink. `lift` raises the threshold so thin grey grid lines survive. */
+export function darkMask(grey, lift = 0) {
+  const thr = Math.min(235, otsuThreshold(grey) + lift);
   const m = new Uint8Array(grey.length);
   for (let i = 0; i < grey.length; i++) m[i] = grey[i] <= thr ? 1 : 0;
   return m;
@@ -56,11 +56,96 @@ function longestRun(arr, start, step, len, gap = 2) {
   return Math.max(best, run);
 }
 
+/** Longest dark run along a line, with where it starts and ends. */
+function longestRunSpan(arr, start, step, len, gap = 2) {
+  let best = { len: 0, a: 0, b: 0 };
+  let a = -1;
+  let last = -1;
+  let g = 0;
+  const close = () => {
+    if (a >= 0 && last - a + 1 > best.len) best = { len: last - a + 1, a, b: last };
+    a = -1;
+    g = 0;
+  };
+  for (let k = 0; k < len; k++) {
+    if (arr[start + k * step]) {
+      if (a < 0) a = k;
+      last = k;
+      g = 0;
+    } else if (a >= 0) {
+      g++;
+      if (g > gap) close();
+    }
+  }
+  close();
+  return best;
+}
+
 /**
- * Find the outer rectangle of the grid from long dark lines.
- * Returns corners [tl, tr, br, bl] as [x, y]. Falls back to a centred square.
+ * Find grids as groups of long parallel lines that share the same extent.
+ * `vertical` looks at columns (extent = top and bottom), otherwise at rows.
+ * Returns groups { lo, hi, a, b, count, score } (across the lines, and along them), best first.
  */
+function lineGroups(dark, w, h, vertical) {
+  const across = vertical ? w : h; // number of lines to scan
+  const along = vertical ? h : w;
+  const tol = Math.max(3, Math.round(along * 0.012));
+  const minLen = along * 0.1;
+  const lines = [];
+  let cur = null;
+  for (let k = 0; k < across; k++) {
+    const r = vertical ? longestRunSpan(dark, k, w, along) : longestRunSpan(dark, k * w, 1, along);
+    if (r.len >= minLen && cur && Math.abs(r.a - cur.a) <= tol && Math.abs(r.b - cur.b) <= tol) {
+      cur.hi = k;
+      continue;
+    }
+    if (cur) lines.push(cur);
+    cur = r.len >= minLen ? { lo: k, hi: k, a: r.a, b: r.b } : null;
+  }
+  if (cur) lines.push(cur);
+  const med = (arr) => arr.slice().sort((x, y) => x - y)[arr.length >> 1];
+  const groups = [];
+  const used = new Set();
+  const seeds = lines.slice().sort((p, q) => q.b - q.a - (p.b - p.a));
+  for (const seed of seeds) {
+    if (used.has(seed)) continue;
+    const members = lines.filter((l) => !used.has(l) && Math.abs(l.a - seed.a) <= tol && Math.abs(l.b - seed.b) <= tol);
+    members.forEach((l) => used.add(l));
+    if (members.length < 4) continue;
+    const a = med(members.map((l) => l.a));
+    const b = med(members.map((l) => l.b));
+    groups.push({
+      lo: Math.min(...members.map((l) => l.lo)),
+      hi: Math.max(...members.map((l) => l.hi)),
+      a,
+      b,
+      count: members.length,
+      score: members.length * (b - a),
+    });
+  }
+  return groups.sort((p, q) => q.score - p.score);
+}
+
+/**
+ * Candidate grid rectangles, best first, each as corners [tl, tr, br, bl] of [x, y].
+ * Works on a whole newspaper page: it keys on groups of grid lines that share the same
+ * length, which ignores title bars, text and the underlines of form fields. A page with
+ * several crosswords gives several candidates.
+ */
+export function detectQuads(dark, w, h, max = 4) {
+  let groups = lineGroups(dark, w, h, true).map((v) => [[v.lo, v.a], [v.hi + 1, v.a], [v.hi + 1, v.b + 1], [v.lo, v.b + 1]]);
+  if (!groups.length) {
+    groups = lineGroups(dark, w, h, false).map((v) => [[v.a, v.lo], [v.b + 1, v.lo], [v.b + 1, v.hi + 1], [v.a, v.hi + 1]]);
+  }
+  return groups.slice(0, max);
+}
+
+/** The most likely grid rectangle, with fallbacks when no grid lines are found. */
 export function detectQuad(dark, w, h) {
+  const found = detectQuads(dark, w, h, 1);
+  if (found.length) return found[0];
+
+  // fall back to the longest lines in the picture
   const rowRun = new Int32Array(h);
   const colRun = new Int32Array(w);
   let maxR = 0;
@@ -81,14 +166,21 @@ export function detectQuad(dark, w, h) {
   for (let x = 0; x < w; x++) if (maxC > 0 && colRun[x] >= 0.6 * maxC) { left = Math.min(left, x); right = Math.max(right, x); }
   const bw = right - left;
   const bh = bottom - top;
-  const ok = isFinite(bw) && isFinite(bh) && bw >= 0.15 * w && bh >= 0.15 * h && bw / bh > 0.6 && bw / bh < 1.67;
-  if (!ok) {
-    const s = Math.min(w, h) * 0.8;
-    const x0 = (w - s) / 2;
-    const y0 = (h - s) / 2;
-    return [[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]];
+  if (isFinite(bw) && isFinite(bh) && bw >= 0.15 * w && bh >= 0.15 * h) {
+    return [[left, top], [right + 1, top], [right + 1, bottom + 1], [left, bottom + 1]];
   }
-  return [[left, top], [right + 1, top], [right + 1, bottom + 1], [left, bottom + 1]];
+  const s = Math.min(w, h) * 0.8;
+  const x0 = (w - s) / 2;
+  const y0 = (h - s) / 2;
+  return [[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]];
+}
+
+/** Width and height of the straightened picture for a quad, keeping square cells square. */
+export function warpDims(quad, outW) {
+  const d = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  const wq = (d(quad[0], quad[1]) + d(quad[3], quad[2])) / 2;
+  const hq = (d(quad[0], quad[3]) + d(quad[1], quad[2])) / 2;
+  return { W: outW, H: Math.max(40, Math.round((outW * hq) / Math.max(1, wq))) };
 }
 
 /** Homography H mapping dst points to src points. Returns 8 coefficients. */
@@ -122,12 +214,12 @@ export function applyHomography(H, x, y) {
   return [(H[0] * x + H[1] * y + H[2]) / d, (H[3] * x + H[4] * y + H[5]) / d];
 }
 
-/** Resample the quad into an out x out greyscale square (bilinear). */
-export function warpGrey(grey, w, h, quad, out) {
-  const H = solveHomography([[0, 0], [out, 0], [out, out], [0, out]], quad);
-  const res = new Uint8Array(out * out);
-  for (let y = 0; y < out; y++) {
-    for (let x = 0; x < out; x++) {
+/** Resample the quad into an outW x outH greyscale rectangle (bilinear). */
+export function warpGrey(grey, w, h, quad, outW, outH = outW) {
+  const H = solveHomography([[0, 0], [outW, 0], [outW, outH], [0, outH]], quad);
+  const res = new Uint8Array(outW * outH);
+  for (let y = 0; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
       const [u, v] = applyHomography(H, x + 0.5, y + 0.5);
       const fx = u - 0.5;
       const fy = v - 0.5;
@@ -143,17 +235,20 @@ export function warpGrey(grey, w, h, quad, out) {
       y1 = Math.min(h - 1, Math.max(0, y1));
       const a = grey[y0 * w + x0] * (1 - tx) + grey[y0 * w + x1] * tx;
       const b = grey[y1 * w + x0] * (1 - tx) + grey[y1 * w + x1] * tx;
-      res[y * out + x] = a * (1 - ty) + b * ty;
+      res[y * outW + x] = a * (1 - ty) + b * ty;
     }
   }
   return res;
 }
 
-/** Estimate N for an N x N grid from the spacing of its lines. dark is W x W. */
-export function detectGridSize(dark, W, min = 5, max = 25) {
+/**
+ * Estimate the number of columns and rows of a W x H straightened grid from the spacing of
+ * its lines. Cells are square, so the row count follows from the column count.
+ */
+export function detectGridDims(dark, W, H, minCols = 5, maxCols = 25) {
   const col = new Float32Array(W);
-  const row = new Float32Array(W);
-  for (let y = 0; y < W; y++) {
+  const row = new Float32Array(H);
+  for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       if (dark[y * W + x]) {
         col[x]++;
@@ -161,41 +256,50 @@ export function detectGridSize(dark, W, min = 5, max = 25) {
       }
     }
   }
-  for (let i = 0; i < W; i++) {
-    col[i] /= W;
-    row[i] /= W;
-  }
+  for (let i = 0; i < W; i++) col[i] /= H;
+  for (let i = 0; i < H; i++) row[i] /= W;
   const win = Math.max(2, Math.round(W / 300));
-  const clamp = (v) => Math.min(W - 1, Math.max(0, Math.round(v)));
-  const peak = (p, pos) => {
+  const peak = (p, len, pos) => {
     let m = 0;
-    for (let d = -win; d <= win; d++) m = Math.max(m, p[clamp(pos + d)]);
+    for (let d = -win; d <= win; d++) m = Math.max(m, p[Math.min(len - 1, Math.max(0, Math.round(pos + d)))]);
     return m;
   };
-  let best = min;
-  let bestScore = -Infinity;
+  const at = (p, len, pos) => p[Math.min(len - 1, Math.max(0, Math.round(pos)))];
   const scores = {};
-  for (let N = min; N <= max; N++) {
-    const cs = W / N;
-    let ls = 0;
-    let ms = 0;
-    for (let k = 0; k <= N; k++) ls += peak(col, k * cs) + peak(row, k * cs);
-    for (let k = 0; k < N; k++) ms += col[clamp((k + 0.5) * cs)] + row[clamp((k + 0.5) * cs)];
-    const score = ls / (2 * (N + 1)) - ms / (2 * N);
-    scores[N] = score;
-    if (score > bestScore) bestScore = score;
+  let bestScore = -Infinity;
+  for (let C = minCols; C <= maxCols; C++) {
+    const rExact = H / (W / C);
+    // a skewed photo distorts the aspect ratio a little, so try the nearby row counts too
+    for (let R = Math.max(3, Math.floor(rExact * 0.88)); R <= Math.ceil(rExact * 1.12); R++) {
+      let ls = 0;
+      let ms = 0;
+      for (let k = 0; k <= C; k++) ls += peak(col, W, k * (W / C));
+      for (let k = 0; k <= R; k++) ls += peak(row, H, k * (H / R));
+      for (let k = 0; k < C; k++) ms += at(col, W, (k + 0.5) * (W / C));
+      for (let k = 0; k < R; k++) ms += at(row, H, (k + 0.5) * (H / R));
+      const score = ls / (C + R + 2) - ms / (C + R);
+      if (!scores[C] || score > scores[C].score) scores[C] = { score, R };
+    }
+    if (scores[C] && scores[C].score > bestScore) bestScore = scores[C].score;
   }
-  // A 15 grid also has lines wherever a 5 grid does (and 13 -> none, 12 -> 6, 4, 3...), so
-  // take the largest size that scores almost as well as the best one.
-  for (let N = min; N <= max; N++) if (scores[N] >= 0.92 * bestScore) best = N;
-  return { N: best, scores };
+  // A 15 grid also has lines wherever a 5 grid does, so take the largest size that
+  // scores almost as well as the best one.
+  let cols = minCols;
+  let rows = Math.max(3, Math.round(H / (W / minCols)));
+  for (let C = minCols; C <= maxCols; C++) {
+    if (scores[C] && scores[C].score >= 0.92 * bestScore) {
+      cols = C;
+      rows = scores[C].R;
+    }
+  }
+  return { rows, cols, scores };
 }
 
-function ratio(dark, W, x0, y0, x1, y1) {
+function ratio(dark, W, H, x0, y0, x1, y1) {
   const xa = Math.max(0, Math.floor(x0));
   const ya = Math.max(0, Math.floor(y0));
   const xb = Math.min(W, Math.ceil(x1));
-  const yb = Math.min(W, Math.ceil(y1));
+  const yb = Math.min(H, Math.ceil(y1));
   let n = 0;
   let d = 0;
   for (let y = ya; y < yb; y++) {
@@ -214,14 +318,15 @@ export const REGIONS = {
 };
 
 /** Per cell: is it a solid block, or does it hold a small number / a letter? */
-export function detectHints(dark, W, N) {
-  const cs = W / N;
+export function detectHints(dark, W, H, rows, cols) {
+  const cw = W / cols;
+  const ch = H / rows;
   const out = [];
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      const x = c * cs;
-      const y = r * cs;
-      const inner = ratio(dark, W, x + 0.15 * cs, y + 0.15 * cs, x + 0.85 * cs, y + 0.85 * cs);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = c * cw;
+      const y = r * ch;
+      const inner = ratio(dark, W, H, x + 0.15 * cw, y + 0.15 * ch, x + 0.85 * cw, y + 0.85 * ch);
       if (inner >= 0.7) {
         out.push({ block: true, maybeNumber: false, maybeLetter: false });
         continue;
@@ -233,8 +338,8 @@ export function detectHints(dark, W, N) {
       const dy = r === 0 ? 0.07 : 0;
       out.push({
         block: false,
-        maybeNumber: ratio(dark, W, x + (a + dx) * cs, y + (b + dy) * cs, x + c2 * cs, y + d * cs) >= 0.035,
-        maybeLetter: ratio(dark, W, x + (e + dx) * cs, y + f * cs, x + g * cs, y + i * cs) >= 0.09,
+        maybeNumber: ratio(dark, W, H, x + (a + dx) * cw, y + (b + dy) * ch, x + c2 * cw, y + d * ch) >= 0.035,
+        maybeLetter: ratio(dark, W, H, x + (e + dx) * cw, y + f * ch, x + g * cw, y + i * ch) >= 0.09,
       });
     }
   }

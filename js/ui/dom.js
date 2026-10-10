@@ -37,6 +37,14 @@ export function toast(message, ms = 2800) {
   }, ms);
 }
 
+export function clearToast() {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  clearTimeout(toastTimer);
+  el.classList.remove('show');
+  el.hidden = true;
+}
+
 /**
  * In-page modal dialog.
  * buttons: [{label, value, primary, danger}]. Resolves with the pressed value (or null on dismiss).

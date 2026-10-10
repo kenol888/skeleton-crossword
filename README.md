@@ -6,10 +6,11 @@ The Sunday Express does not publish its Skeleton crossword online, so the app do
 
 ## What it does
 
-- **Import** a photo, screenshot or PDF. Drag four corner handles onto the grid (they start in the right place for clean pages) and the app straightens it, works out the grid size (5 to 25) and spots any printed black squares, clue numbers and letters.
-- **Clues** are read from the picture (draw a box round a column of clues), pasted in (on iPad, press and hold the text in your photo and choose Copy), or typed. They are sorted into Across and Down and shown in an editable list so OCR slips are easy to fix.
-- **Solves the layout.** Clue numbers and letter counts usually fix the black-square pattern completely. The app uses that for three opt-in tools: *Check my layout* (tells you whether your squares fit, without revealing anything), *Hint* (places one square and its mirror) and *Reveal whole layout*.
-- **Play.** Letters mode and Squares mode, symmetric black squares, live clue numbers, pencil entries, undo and redo, an on-screen keyboard (hardware keyboards work too, with Tab for the next clue and Space to switch direction).
+- **Made for the Sunday Express skeleton**: a 15 by 11 grid (any size from 3 to 25 works), black squares that mirror top to bottom and left to right, a few printed black squares and numbers, and clues with no letter counts.
+- **Import** a photo, screenshot or PDF of the whole page. The app finds the grid (if the page has more than one crossword, "Try another grid on the page" cycles through them), straightens it, works out the number of columns and rows, and reads the printed black squares and clue numbers. Drag the four corner handles if it needs adjusting.
+- **Clues** are read from the picture (draw a box round the Across column, then the Down column), pasted in (on iPad, press and hold the text in your photo and choose Copy), or typed. They are sorted into Across and Down and shown in an editable list so reading slips are easy to fix. Letter counts are optional.
+- **Solves the layout.** The clue numbers say which numbers start an across word, a down word or both, and the symmetry copies every square to its mirrors. From that alone the app usually narrows the grid to a handful of layouts (8 to 10 for typical puzzles) in a fraction of a second. It places the black squares that every possible layout shares, and tells you which clues could still have more than one length. As you solve answers, tap *Set letter count* on a clue and the choices narrow further, often to one. These tools are opt-in: *Check my layout* (tells you whether your squares fit, without revealing anything), *Hint* (places one certain square and its mirrors) and *Reveal whole layout*.
+- **Play.** Letters mode and Squares mode, symmetric black squares (mirror, half-turn or none), live clue numbers, pencil entries, undo and redo, an on-screen keyboard (hardware keyboards work too, with Tab for the next clue and Space to switch direction).
 - **Crossing off.** A clue is struck through automatically when its word is filled in and its length fits the grid. Tap the circle to cross one off by hand.
 - **Word finder.** Pattern search (`C?T??`) and anagrams, honouring multi-word answers like (4,7). Results go into the grid in pencil.
 - **Library.** Puzzles autosave on the device. Duplicate, export (JSON) and import to back up or move between devices.
@@ -18,10 +19,10 @@ The Sunday Express does not publish its Skeleton crossword online, so the app do
 ## Run it
 
 ```bash
-python -m http.server 8080
+python tools/serve.py 8080
 ```
 
-Open <http://localhost:8080> in a browser. Add `?nosw` to the address to skip the service worker while developing.
+Open <http://localhost:8080> in a browser. This server turns caching off so edits show on reload. Add `?nosw` to the address to skip the service worker while developing.
 
 Tests for the pure logic (numbering, clue parsing, layout solver, grid detection):
 
@@ -55,4 +56,4 @@ No build step and no framework: plain ES modules.
 | `js/storage.js` | localStorage with an in-memory fallback |
 | `sw.js` | Offline cache |
 
-`samples/sample-15.json` is an invented puzzle (made-up clues, letters that do not form real crossing answers), there to try the features.
+`samples/sample-skeleton.json` is an invented 15 by 11 puzzle in the Sunday Express format (made-up clues, no letter counts, letters that do not form real crossing answers), there to try the features. `node tools/build-sample.mjs` rebuilds it.

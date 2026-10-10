@@ -1,3 +1,5 @@
+> **Note:** this is the original design plan. The built app differs in three ways, learned from a real Sunday Express page: the grid is 15 columns by 11 rows (not square), the black squares mirror top-to-bottom and left-to-right (not half-turn), and the clues have no letter counts. See `README.md` and `AGENTS.md` for the current behaviour.
+
 # Skeleton Crossword for iPad — Implementation Plan
 
 ## 1. Findings from investigation

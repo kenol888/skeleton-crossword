@@ -161,13 +161,15 @@ export function parseClues(input) {
     });
   }
 
+  const anyCounts = [...out.across, ...out.down].some((c) => c.enumeration);
   for (const dir of ['across', 'down']) {
     out[dir].sort((a, b) => a.number - b.number);
     const seen = new Set();
     for (const c of out[dir]) {
       if (seen.has(c.number)) warnings.push(`Duplicate ${dir} clue ${c.number}.`);
       seen.add(c.number);
-      if (!c.enumeration) warnings.push(`${c.number} ${dir === 'across' ? 'Across' : 'Down'} has no letter count.`);
+      // letter counts are optional (some papers do not print them), so only point out gaps
+      if (!c.enumeration && anyCounts) warnings.push(`${c.number} ${dir === 'across' ? 'Across' : 'Down'} has no letter count.`);
       if (!c.text) warnings.push(`${c.number} ${dir === 'across' ? 'Across' : 'Down'} has no clue text.`);
     }
   }

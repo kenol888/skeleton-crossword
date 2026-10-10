@@ -68,3 +68,23 @@ test('no headings: switches to Down when numbers reset', () => {
   assert.deepEqual(r.across.map((c) => c.number), [1, 4]);
   assert.deepEqual(r.down.map((c) => c.number), [2, 3]);
 });
+
+test('clues with no letter counts at all (as printed in the Sunday Express skeleton)', () => {
+  const r = parseClues(`ACROSS
+1 A student a lout brains
+3 Sap wanting a dated jet
+6 Ace book well rid of covers
+- The Third Man?
+11 Cheerful around cooler
+DOWN
+1 Clear clue contents cops
+2 Article by northern bird`);
+  assert.deepEqual(r.across.map((c) => c.number), [1, 3, 6, 11]);
+  assert.deepEqual(r.down.map((c) => c.number), [1, 2]);
+  assert.equal(r.across[0].text, 'A student a lout brains');
+  assert.equal(r.across[2].text, 'Ace book well rid of covers - The Third Man?');
+  assert.equal(r.across[0].length, 0);
+  // no letter counts anywhere is normal, so it is not warned about per clue
+  assert.ok(!r.warnings.some((w) => /letter count/.test(w)), r.warnings.join('|'));
+  assert.ok(r.warnings.some((w) => /missing from both lists: 4, 5, 7, 8, 9, 10/.test(w)), r.warnings.join('|'));
+});

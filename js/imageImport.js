@@ -1,11 +1,11 @@
 // Canvas-side image helpers for the import flow: load a photo or PDF, convert to greyscale,
 // straighten the grid, and crop pieces for the text reader. The maths lives in gridDetect.js.
-import { darkMask, detectQuad, detectGridSize, detectHints, warpGrey, REGIONS } from './gridDetect.js';
+import { darkMask, detectQuad, detectQuads, detectGridDims, detectHints, warpGrey, warpDims, REGIONS } from './gridDetect.js';
 
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 export const MAX_SIDE = 2400;
-export const WARP_SIZE = 900;
+export const WARP_WIDTH = 1200;
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -96,41 +96,52 @@ export function greyToCanvas(grey, w, h) {
   return c;
 }
 
-/** Suggest the four grid corners [tl,tr,br,bl] in source canvas pixels. */
-export function autoQuad(canvas) {
-  // work on a smaller copy so detection stays quick
-  const scale = Math.min(1, 900 / Math.max(canvas.width, canvas.height));
+/** Candidate grid corners [tl,tr,br,bl] in source canvas pixels, best first (always at least one). */
+export function autoQuads(canvas) {
+  // work on a copy no bigger than 1600px so thin grid lines survive but detection stays quick
+  const scale = Math.min(1, 1600 / Math.max(canvas.width, canvas.height));
   const small = document.createElement('canvas');
   small.width = Math.round(canvas.width * scale);
   small.height = Math.round(canvas.height * scale);
   small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
   const { grey, w, h } = canvasToGrey(small);
-  const q = detectQuad(darkMask(grey), w, h);
-  return q.map(([x, y]) => [x / scale, y / scale]);
+  const dark = darkMask(grey, 30);
+  let quads = detectQuads(dark, w, h);
+  if (!quads.length) quads = [detectQuad(dark, w, h)];
+  return quads.map((q) => q.map(([x, y]) => [x / scale, y / scale]));
 }
 
-/** Straighten the quad to a WARP_SIZE square. Returns { grey, dark }. */
+/** Straighten the quad to a WARP_WIDTH wide rectangle. Returns { grey, dark, W, H }. */
 export function straighten(canvas, quad) {
   const { grey, w, h } = canvasToGrey(canvas);
-  const out = warpGrey(grey, w, h, quad, WARP_SIZE);
-  return { grey: out, dark: darkMask(out) };
+  const { W, H } = warpDims(quad, WARP_WIDTH);
+  const out = warpGrey(grey, w, h, quad, W, H);
+  return { grey: out, dark: darkMask(out, 30), W, H };
 }
 
-export function analyseGrid(dark, N) {
-  const size = N || detectGridSize(dark, WARP_SIZE).N;
-  return { N: size, hints: detectHints(dark, WARP_SIZE, size) };
+/** Grid dimensions (auto-detected unless rows and cols are given) and the hints in each cell. */
+export function analyseGrid(warped, rows, cols) {
+  let R = rows;
+  let C = cols;
+  if (!R || !C) {
+    const d = detectGridDims(warped.dark, warped.W, warped.H);
+    R = d.rows;
+    C = d.cols;
+  }
+  return { rows: R, cols: C, hints: detectHints(warped.dark, warped.W, warped.H, R, C) };
 }
 
 /** Crop a cell's number or letter area from the straightened grid for the text reader. */
-export function cropCellRegion(grey, N, index, kind) {
-  const cs = WARP_SIZE / N;
-  const r = Math.floor(index / N);
-  const c = index % N;
+export function cropCellRegion(warped, rows, cols, index, kind) {
+  const cw = warped.W / cols;
+  const ch = warped.H / rows;
+  const r = Math.floor(index / cols);
+  const c = index % cols;
   const [a, b, c2, d] = REGIONS[kind === 'number' ? 'number' : 'letter'];
-  const x0 = Math.round(c * cs + a * cs);
-  const y0 = Math.round(r * cs + b * cs);
-  const w = Math.max(4, Math.round((c2 - a) * cs));
-  const h = Math.max(4, Math.round((d - b) * cs));
+  const x0 = Math.round(c * cw + a * cw);
+  const y0 = Math.round(r * ch + b * ch);
+  const w = Math.max(4, Math.round((c2 - a) * cw));
+  const h = Math.max(4, Math.round((d - b) * ch));
   const scale = 4;
   const pad = 12;
   const out = document.createElement('canvas');
@@ -139,7 +150,7 @@ export function cropCellRegion(grey, N, index, kind) {
   const ctx = out.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, out.width, out.height);
-  const tmp = greyToCanvas(grey, WARP_SIZE, WARP_SIZE);
+  const tmp = greyToCanvas(warped.grey, warped.W, warped.H);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(tmp, x0, y0, w, h, pad, pad, w * scale, h * scale);
   return out;

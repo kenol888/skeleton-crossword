@@ -55,12 +55,13 @@ function newFromPhoto() {
 }
 
 function newBlank() {
-  const size = h('input', { id: 'blank-size', class: 'text-input', type: 'number', min: 5, max: 25, value: 15, inputmode: 'numeric', 'aria-label': 'Grid size' });
+  const colsIn = h('input', { id: 'blank-cols', class: 'text-input', type: 'number', min: 3, max: 25, value: 15, inputmode: 'numeric', 'aria-label': 'Columns' });
+  const rowsIn = h('input', { id: 'blank-rows', class: 'text-input', type: 'number', min: 3, max: 25, value: 11, inputmode: 'numeric', 'aria-label': 'Rows' });
   const name = h('input', { id: 'blank-name', class: 'text-input', type: 'text', maxlength: 60, 'aria-label': 'Puzzle name', placeholder: 'Skeleton ' + new Date().toLocaleDateString() });
   const body = h(
     'div',
     { class: 'form' },
-    h('label', { class: 'field', for: 'blank-size' }, h('span', null, 'Grid size (squares per side)'), size),
+    h('div', { class: 'two-up' }, h('label', { class: 'field', for: 'blank-cols' }, h('span', null, 'Columns (across)'), colsIn), h('label', { class: 'field', for: 'blank-rows' }, h('span', null, 'Rows (down)'), rowsIn)),
     h('label', { class: 'field', for: 'blank-name' }, h('span', null, 'Name'), name)
   );
   dialog({
@@ -72,12 +73,14 @@ function newBlank() {
     ],
   }).promise.then((v) => {
     if (v !== 'ok') return;
-    const n = Math.min(25, Math.max(5, parseInt(size.value, 10) || 15));
+    const cols = Math.min(25, Math.max(3, parseInt(colsIn.value, 10) || 15));
+    const rows = Math.min(25, Math.max(3, parseInt(rowsIn.value, 10) || 11));
     show('import');
     startImport({
       container: screens.import,
       blank: true,
-      size: n,
+      rows,
+      cols,
       title: name.value.trim(),
       onDone: (p) => {
         savePuzzle(p);
@@ -90,7 +93,7 @@ function newBlank() {
 
 async function trySample() {
   try {
-    const res = await fetch('samples/sample-15.json');
+    const res = await fetch('samples/sample-skeleton.json');
     if (!res.ok) throw new Error(String(res.status));
     const p = fromJSON(await res.json());
     p.id = newId();
@@ -164,7 +167,7 @@ function card(entry) {
       'button',
       { class: 'card-main', type: 'button', onclick: () => resume(entry.id) },
       h('span', { class: 'card-title' }, entry.title),
-      h('span', { class: 'card-meta' }, `${entry.size} × ${entry.size} · ${when}`),
+      h('span', { class: 'card-meta' }, `${entry.cols || entry.size} × ${entry.rows || entry.size} · ${when}`),
       h('span', { class: 'bar', role: 'img', 'aria-label': pct + ' percent filled' }, h('span', { class: 'bar-fill', style: `width:${pct}%` })),
       h('span', { class: 'card-pct' }, pct + '% filled')
     ),

@@ -3,17 +3,18 @@ import { h } from './dom.js';
 
 export function createGridView(cb) {
   const el = h('div', { class: 'grid', role: 'application', 'aria-label': 'Crossword grid' });
-  let size = 0;
+  let dims = '';
   let cells = [];
   let down = false;
   let lastIdx = -1;
 
-  function build(n) {
-    size = n;
+  function build(rows, cols) {
+    dims = rows + 'x' + cols;
     el.textContent = '';
     cells = [];
-    el.style.setProperty('--n', n);
-    for (let i = 0; i < n * n; i++) {
+    el.style.setProperty('--rows', rows);
+    el.style.setProperty('--cols', cols);
+    for (let i = 0; i < rows * cols; i++) {
       const c = h('div', { class: 'cell', 'data-i': i }, h('span', { class: 'num' }), h('span', { class: 'ch' }));
       c._num = c.firstChild;
       c._ch = c.lastChild;
@@ -54,11 +55,11 @@ export function createGridView(cb) {
   window.addEventListener('pointercancel', end);
 
   /**
-   * ctx: { puzzle, numbering, sel, wordCells:Set, mirrorIdx, warn:Set, flash:Set }
+   * ctx: { puzzle, numbering, sel, wordCells:Set, mirrors:Set, warn:Set, flash:Set }
    */
   function update(ctx) {
     const { puzzle, numbering } = ctx;
-    if (size !== puzzle.size) build(puzzle.size);
+    if (dims !== puzzle.rows + 'x' + puzzle.cols) build(puzzle.rows, puzzle.cols);
     puzzle.cells.forEach((cell, i) => {
       const el2 = cells[i];
       const number = numbering.numbers[i];
@@ -67,19 +68,19 @@ export function createGridView(cb) {
       if (cell.givenBlock) cls += ' locked';
       if (i === ctx.sel) cls += ' sel';
       else if (ctx.wordCells.has(i)) cls += ' word';
-      if (i === ctx.mirrorIdx && i !== ctx.sel) cls += ' mirror';
+      if (ctx.mirrors.has(i) && i !== ctx.sel) cls += ' mirror';
       if (ctx.warn.has(i)) cls += ' warn';
       if (ctx.flash.has(i)) cls += ' flash';
       if (cell.givenLetter) cls += ' given';
       else if (cell.letter && cell.pencil) cls += ' pencil';
       let numText = '';
       if (!cell.block) {
-        if (number) numText = String(number);
-        else if (cell.givenNumber) {
+        // a number printed in the puzzle is the truth: show it even where the layout so far
+        // would number the square differently
+        if (cell.givenNumber) {
           numText = String(cell.givenNumber);
-          cls += ' hint-num';
-        }
-        if (number && cell.givenNumber && cell.givenNumber !== number) cls += ' hint-num';
+          cls += number === cell.givenNumber ? ' printed-num' : ' hint-num';
+        } else if (number) numText = String(number);
       }
       if (el2.className !== cls) el2.className = cls;
       if (el2._num.textContent !== numText) el2._num.textContent = numText;

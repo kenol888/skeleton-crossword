@@ -1,6 +1,6 @@
 // Offline support: stale-while-revalidate for the app shell and for the library files
 // fetched from CDNs (OCR engine, PDF reader, word list, fonts).
-const CACHE = 'skeleton-v5';
+const CACHE = 'skeleton-v6';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
   'js/main.js', 'js/model.js', 'js/solver.js', 'js/solverWorker.js', 'js/solverClient.js',

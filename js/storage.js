@@ -80,11 +80,16 @@ function saveIndex(list) {
   return rawSet(INDEX_KEY, JSON.stringify(list));
 }
 
+/** One character per square, row by row: '#' black, '+' has a letter, '.' empty. For the home screen pictures. */
+export function thumbOf(p) {
+  return p.cells.map((c) => (c.block ? '#' : c.letter ? '+' : '.')).join('');
+}
+
 export function savePuzzle(p) {
   p.updatedAt = Date.now();
   const res = rawSet(PUZZLE_PREFIX + p.id, JSON.stringify({ version: 1, ...p }));
   const idx = loadIndex().filter((e) => e.id !== p.id);
-  idx.push({ id: p.id, title: p.title, updatedAt: p.updatedAt, createdAt: p.createdAt, rows: p.rows, cols: p.cols, progress: progress(p) });
+  idx.push({ id: p.id, title: p.title, updatedAt: p.updatedAt, createdAt: p.createdAt, rows: p.rows, cols: p.cols, progress: progress(p), thumb: thumbOf(p) });
   saveIndex(idx);
   return res;
 }

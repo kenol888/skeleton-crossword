@@ -1,35 +1,52 @@
-// Offline support: stale-while-revalidate for the app shell and for the library files
-// fetched from CDNs (OCR engine, PDF reader, word list, fonts).
-const CACHE = 'skeleton-v6';
-const SHELL = [
-  './', 'index.html', 'css/styles.css', 'manifest.webmanifest',
-  'js/main.js', 'js/model.js', 'js/solver.js', 'js/solverWorker.js', 'js/solverClient.js',
-  'js/version.js', 'js/clueParser.js', 'js/clueFinder.js', 'js/clueReader.js', 'js/storage.js', 'js/gridDetect.js', 'js/imageImport.js', 'js/ocr.js',
-  'js/importFlow.js', 'js/play.js', 'js/ui/dom.js', 'js/ui/grid.js', 'js/ui/clues.js',
-  'js/ui/keyboard.js', 'js/ui/wordFinder.js', 'samples/sample-skeleton.json',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
-];
+// Offline support: the app files are stored when this worker installs, then served from the
+// store and refreshed in the background. The CACHE name is written by tools/stamp.mjs.
+const CACHE = 'skeleton-v7';
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com', 'tessdata.projectnaptha.com'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    (async () => {
+      // The file list comes from version.json (written by tools/stamp.mjs), fetched fresh.
+      const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('version.json ' + res.status);
+      const meta = await res.json();
+      // Refuse to install a worker whose file list belongs to a different release: stale answers
+      // from the host's cache would otherwise leave old files stored under the new name.
+      if (CACHE !== 'skeleton-v' + meta.version) throw new Error('release mismatch');
+      const cache = await caches.open(CACHE);
+      await Promise.all(
+        ['./', ...meta.files].map(async (f) => {
+          // 'reload' skips the browser's own cache (GitHub Pages lets it keep files for ten minutes),
+          // so what we store is what is really published
+          const r = await fetch(f, { cache: 'reload' });
+          if (!r.ok) throw new Error('could not fetch ' + f);
+          await cache.put(f, r);
+        })
+      );
+      await self.skipWaiting();
+    })()
+  );
 });
+
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin && !CDN.includes(url.hostname)) return;
+  const sameOrigin = url.origin === location.origin;
+  if (!sameOrigin && !CDN.includes(url.hostname)) return;
   // always ask the network which version is published (the home screen compares it with its own)
-  if (url.pathname.endsWith('/version.json')) return;
+  if (sameOrigin && url.pathname.endsWith('/version.json')) return;
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
-      const hit = await cache.match(req, { ignoreSearch: url.origin === location.origin });
-      const net = fetch(req)
+      const hit = await cache.match(req, { ignoreSearch: sameOrigin });
+      // refresh in the background; for our own files go past the browser's cache so it is really fresh
+      const net = fetch(sameOrigin ? req.url : req, sameOrigin ? { cache: 'no-cache' } : undefined)
         .then((res) => {
           if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
           return res;

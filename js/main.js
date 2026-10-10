@@ -1,9 +1,10 @@
-// App shell: library screen, routing between screens, puzzle import/export.
-import { h, $, toast, dialog, confirmDialog } from './ui/dom.js';
-import { loadIndex, loadPuzzleRaw, savePuzzle, deletePuzzle, storageAvailable } from './storage.js';
-import { fromJSON, toJSON, newId } from './model.js';
+// App shell: home screen, routing between screens, saved puzzles.
+import { h, $, toast, actionSheet, confirmDialog, inputDialog } from './ui/dom.js';
+import { loadIndex, loadPuzzleRaw, savePuzzle, deletePuzzle, storageAvailable, thumbOf } from './storage.js';
+import { fromJSON, newId } from './model.js';
 import { openPlay, closePlay } from './play.js';
 import { startImport } from './importFlow.js';
+import { heroArt, thumbSvg } from './homeArt.js';
 import { VERSION, BUILT } from './version.js';
 
 const screens = {
@@ -43,7 +44,7 @@ function resume(id) {
   }
 }
 
-function newFromPhoto() {
+function importFromImage() {
   show('import');
   startImport({
     container: screens.import,
@@ -55,94 +56,25 @@ function newFromPhoto() {
   });
 }
 
-function newBlank() {
-  const colsIn = h('input', { id: 'blank-cols', class: 'text-input', type: 'number', min: 3, max: 25, value: 15, inputmode: 'numeric', 'aria-label': 'Columns' });
-  const rowsIn = h('input', { id: 'blank-rows', class: 'text-input', type: 'number', min: 3, max: 25, value: 11, inputmode: 'numeric', 'aria-label': 'Rows' });
-  const name = h('input', { id: 'blank-name', class: 'text-input', type: 'text', maxlength: 60, 'aria-label': 'Puzzle name', placeholder: 'Skeleton ' + new Date().toLocaleDateString() });
-  const body = h(
-    'div',
-    { class: 'form' },
-    h('div', { class: 'two-up' }, h('label', { class: 'field', for: 'blank-cols' }, h('span', null, 'Columns (across)'), colsIn), h('label', { class: 'field', for: 'blank-rows' }, h('span', null, 'Rows (down)'), rowsIn)),
-    h('label', { class: 'field', for: 'blank-name' }, h('span', null, 'Name'), name)
-  );
-  dialog({
-    title: 'Blank puzzle',
-    body,
-    buttons: [
-      { label: 'Cancel', value: null },
-      { label: 'Next: add clues', value: 'ok', primary: true },
-    ],
-  }).promise.then((v) => {
-    if (v !== 'ok') return;
-    const cols = Math.min(25, Math.max(3, parseInt(colsIn.value, 10) || 15));
-    const rows = Math.min(25, Math.max(3, parseInt(rowsIn.value, 10) || 11));
-    show('import');
-    startImport({
-      container: screens.import,
-      blank: true,
-      rows,
-      cols,
-      title: name.value.trim(),
-      onDone: (p) => {
-        savePuzzle(p);
-        play(p);
-      },
-      onCancel: showLibrary,
-    });
-  });
-}
-
-async function trySample() {
-  try {
-    const res = await fetch('samples/sample-skeleton.json');
-    if (!res.ok) throw new Error(String(res.status));
-    const p = fromJSON(await res.json());
-    p.id = newId();
-    p.createdAt = p.updatedAt = Date.now();
-    savePuzzle(p);
-    play(p);
-  } catch (e) {
-    toast("Couldn't load the sample puzzle. Check your connection and try again.");
-  }
-}
-
-function importFile() {
-  const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true, id: 'import-json' });
-  input.addEventListener('change', async () => {
-    const f = input.files && input.files[0];
-    if (!f) return;
-    try {
-      const p = fromJSON(await f.text());
-      p.id = newId();
-      savePuzzle(p);
-      renderLibrary();
-      toast(`Added "${p.title}".`);
-    } catch (e) {
-      toast("That file isn't a puzzle saved from this app.");
-    }
-  });
-  document.body.append(input);
-  input.click();
-  setTimeout(() => input.remove(), 60000);
-}
-
-function exportPuzzle(id) {
+// ------------------------------------------------------------------ saved puzzles
+function loadSaved(id) {
   const raw = loadPuzzleRaw(id);
-  if (!raw) return;
-  const p = fromJSON(raw);
-  const blob = new Blob([toJSON(p)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = h('a', { href: url, download: p.title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') + '.skeleton.json' });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return raw ? fromJSON(raw) : null;
 }
 
-function duplicate(id) {
-  const raw = loadPuzzleRaw(id);
-  if (!raw) return;
-  const p = fromJSON(raw);
+async function rename(entry) {
+  const v = await inputDialog('Rename puzzle', 'Name', entry.title, { maxlength: 60, okLabel: 'Rename' });
+  if (!v || !v.trim()) return;
+  const p = loadSaved(entry.id);
+  if (!p) return;
+  p.title = v.trim();
+  savePuzzle(p);
+  renderLibrary();
+}
+
+function duplicate(entry) {
+  const p = loadSaved(entry.id);
+  if (!p) return;
   p.id = newId();
   p.title += ' (copy)';
   p.createdAt = Date.now();
@@ -157,49 +89,28 @@ async function remove(entry) {
   }
 }
 
-// ------------------------------------------------------------------ library screen
-function card(entry) {
-  const pct = Math.round((entry.progress || 0) * 100);
-  const when = new Date(entry.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  return h(
-    'li',
-    { class: 'card' },
-    h(
-      'button',
-      { class: 'card-main', type: 'button', onclick: () => resume(entry.id) },
-      h('span', { class: 'card-title' }, entry.title),
-      h('span', { class: 'card-meta' }, `${entry.cols || entry.size} × ${entry.rows || entry.size} · ${when}`),
-      h('span', { class: 'bar', role: 'img', 'aria-label': pct + ' percent filled' }, h('span', { class: 'bar-fill', style: `width:${pct}%` })),
-      h('span', { class: 'card-pct' }, pct + '% filled')
-    ),
-    h(
-      'div',
-      { class: 'card-actions' },
-      h('button', { class: 'btn quiet', type: 'button', onclick: () => duplicate(entry.id) }, 'Duplicate'),
-      h('button', { class: 'btn quiet', type: 'button', onclick: () => exportPuzzle(entry.id) }, 'Export'),
-      h('button', { class: 'btn quiet danger-text', type: 'button', onclick: () => remove(entry) }, 'Delete')
-    )
-  );
-}
-
 // ------------------------------------------------------------------ version
 // Shows which version this copy is and, when online, whether a newer one has been published.
 // The answer is only trusted if the last check succeeded: a failed check says so, rather than
 // leaving an old "latest version" on screen.
-const upd = { state: 'idle', latest: null, checkedAt: null }; // state: idle | checking | ok | error
+const upd = { state: 'idle', latest: null, checkedAt: null, applying: false }; // state: idle | checking | ok | error
 
 const fmtBuilt = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 const fmtTime = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+const freshJson = async () => {
+  // a unique address plus no-store, so neither the browser nor the host's cache can answer
+  const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error('status ' + res.status);
+  return res.json();
+};
 
 async function checkForUpdate() {
   if (upd.state === 'checking') return;
   upd.state = 'checking';
   refreshVersionLine();
   try {
-    // a unique address plus no-store, so neither the browser nor the host's cache can answer
-    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    const data = await res.json();
+    const data = await freshJson();
     if (!Number.isInteger(data.version)) throw new Error('bad version file');
     upd.latest = data;
     upd.checkedAt = new Date();
@@ -215,7 +126,16 @@ async function checkForUpdate() {
   refreshVersionLine();
 }
 
-async function reloadLatest() {
+async function applyUpdate() {
+  if (upd.applying) return;
+  upd.applying = true;
+  refreshVersionLine();
+  try {
+    // GitHub Pages lets the browser keep files for ten minutes. Fetch every file again past that
+    // cache first, so the reload below picks up the new ones and not the old copies.
+    const meta = await freshJson();
+    await Promise.all(['./', ...(meta.files || [])].map((f) => fetch(f, { cache: 'reload' })));
+  } catch (e) { /* carry on: clearing the stored copies still helps */ }
   try {
     const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(regs.map((r) => r.unregister()));
@@ -232,17 +152,18 @@ function refreshVersionLine() {
 
 function fillVersionLine(el) {
   el.textContent = '';
-  el.append(h('span', null, `Version ${VERSION} \u00B7 ${fmtBuilt(BUILT)}`));
-  if (upd.state === 'checking') el.append(h('span', { class: 'muted' }, 'Checking for updates\u2026'));
+  el.append(h('span', { class: 'ver-num' }, `Version ${VERSION}`), h('span', null, fmtBuilt(BUILT)));
+  if (upd.applying) el.append(h('span', { class: 'ver-new' }, 'Updating…'));
+  else if (upd.state === 'checking') el.append(h('span', { class: 'muted' }, 'Checking for updates…'));
   else if (upd.state === 'error') el.append(h('span', { class: 'ver-new' }, "Couldn't check (offline?)"));
   else if (upd.state === 'ok') {
     if (upd.latest.version > VERSION) {
-      el.append(h('span', { class: 'ver-new' }, `Version ${upd.latest.version} is available`), h('button', { class: 'btn small primary', type: 'button', onclick: reloadLatest }, 'Update now'));
+      el.append(h('span', { class: 'ver-new' }, `Version ${upd.latest.version} is available`), h('button', { class: 'btn small primary', type: 'button', onclick: applyUpdate }, 'Update now'));
     } else {
-      el.append(h('span', { class: 'ver-ok' }, `Latest version \u00B7 checked ${fmtTime(upd.checkedAt)}`));
+      el.append(h('span', { class: 'ver-ok' }, `Latest · checked ${fmtTime(upd.checkedAt)}`));
     }
   }
-  if (upd.state !== 'checking') el.append(h('button', { class: 'btn small', type: 'button', onclick: checkForUpdate }, 'Check for updates'));
+  if (upd.state !== 'checking' && !upd.applying) el.append(h('button', { class: 'btn small', type: 'button', onclick: checkForUpdate }, 'Check for updates'));
 }
 
 function versionLine() {
@@ -252,45 +173,81 @@ function versionLine() {
   return el;
 }
 
+// ------------------------------------------------------------------ home screen
+const IMAGE_ICON =
+  '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5.5-5.5 4 4 2.5-2.5L21 18"/></svg>';
+
+function card(entry) {
+  const pct = Math.round((entry.progress || 0) * 100);
+  const when = new Date(entry.updatedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const rows = entry.rows || entry.size;
+  const cols = entry.cols || entry.size;
+  let thumb = entry.thumb;
+  if (!thumb) {
+    // saved by an older version: work the picture out from the stored puzzle
+    try {
+      const p = loadSaved(entry.id);
+      thumb = p ? thumbOf(p) : '';
+    } catch (e) {
+      thumb = '';
+    }
+  }
+  const more = h('button', { class: 'card-more', type: 'button', 'aria-label': 'More for ' + entry.title, onclick: () => actionSheet(entry.title, [
+    { label: 'Rename', run: () => rename(entry) },
+    { label: 'Duplicate', run: () => duplicate(entry) },
+    { label: 'Delete', hint: 'Removes it and your progress from this device', run: () => remove(entry), danger: true },
+  ]) }, '⋯');
+  return h(
+    'li',
+    { class: 'card' },
+    h(
+      'button',
+      { class: 'card-main', type: 'button', onclick: () => resume(entry.id) },
+      h('span', { class: 'card-thumb' }, rows && cols ? thumbSvg(rows, cols, thumb) : null),
+      h(
+        'span',
+        { class: 'card-body' },
+        h('span', { class: 'card-title' }, entry.title),
+        h('span', { class: 'card-meta' }, `${cols} × ${rows} · ${when}`),
+        h('span', { class: 'bar', role: 'img', 'aria-label': pct + ' percent filled' }, h('span', { class: 'bar-fill', style: `width:${pct}%` })),
+        h('span', { class: 'card-pct' }, pct ? pct + '% filled' : 'Not started')
+      )
+    ),
+    more
+  );
+}
+
 function renderLibrary() {
   const entries = loadIndex().sort((a, b) => b.updatedAt - a.updatedAt);
   const root = screens.library;
   root.textContent = '';
-  const miniGrid = h('div', { class: 'logo-grid', 'aria-hidden': 'true' }, ['', '', 'b', '', 'b', '', 'b', '', ''].map((c) => h('i', { class: c })));
+  const importBtn = h('button', { class: 'btn primary xl', type: 'button', onclick: importFromImage });
+  importBtn.innerHTML = IMAGE_ICON + '<span>Import from image</span>';
   root.append(
     h(
       'div',
-      { class: 'library' },
+      { class: 'home' },
       h(
-        'header',
+        'section',
         { class: 'hero' },
-        miniGrid,
-        h('div', null, h('h1', null, 'Skeleton Crossword'), h('p', { class: 'tag' }, 'Work out the grid, then fill it in.'), versionLine())
+        h(
+          'div',
+          { class: 'hero-copy' },
+          h('h1', null, h('span', null, 'Skeleton'), h('span', null, 'Crossword')),
+          h('p', { class: 'tag' }, 'Work out the grid, then fill it in.'),
+          importBtn,
+          versionLine()
+        ),
+        h('div', { class: 'hero-art' }, heroArt())
       ),
-      !storageAvailable() ? h('p', { class: 'notice' }, "This browser isn't keeping saved data, so puzzles will be lost when you close the page. Export puzzles to keep them.") : null,
+      !storageAvailable() ? h('p', { class: 'notice' }, "This browser isn't keeping saved data, so puzzles will be lost when you close the page.") : null,
       h(
-        'div',
-        { class: 'actions' },
-        h('button', { class: 'btn primary big', type: 'button', onclick: newFromPhoto }, 'New puzzle from photo or PDF'),
-        h('button', { class: 'btn big', type: 'button', onclick: newBlank }, 'Blank puzzle'),
-        h('button', { class: 'btn big', type: 'button', onclick: trySample }, 'Try a sample'),
-        h('button', { class: 'btn big quiet', type: 'button', onclick: importFile }, 'Import file')
-      ),
-      entries.length
-        ? h('section', null, h('h2', { class: 'section-title' }, 'Your puzzles'), h('ul', { class: 'cards' }, entries.map(card)))
-        : h(
-            'section',
-            { class: 'empty' },
-            h('h2', { class: 'section-title' }, 'How it works'),
-            h(
-              'ol',
-              { class: 'how' },
-              h('li', null, h('strong', null, 'Add the puzzle.'), ' Photograph the page or use a screenshot or PDF. The app finds the grid and reads any printed squares and clues.'),
-              h('li', null, h('strong', null, 'Find the black squares.'), ' Clue numbers and letter counts give the layout away. Place squares as you spot them, or ask for a check or a hint.'),
-              h('li', null, h('strong', null, 'Fill in the answers.'), ' Clues are crossed off as each word is completed.')
-            ),
-            h('p', { class: 'muted' }, 'The Sunday Express does not publish its Skeleton online, so the app works from your copy of the printed page.')
-          )
+        'section',
+        { class: 'shelf' },
+        h('h2', null, 'Puzzles', entries.length ? h('span', { class: 'count-chip' }, String(entries.length)) : null),
+        entries.length ? h('ul', { class: 'cards' }, entries.map(card)) : h('p', { class: 'shelf-empty' }, 'Puzzles you import will appear here.')
+      )
     )
   );
 }

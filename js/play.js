@@ -1,5 +1,5 @@
 // Play screen controller: owns the open puzzle, input, history, layout tools and autosave.
-import { h, toast, clearToast, dialog, confirmDialog, inputDialog, modalOpen } from './ui/dom.js';
+import { h, toast, clearToast, dialog, actionSheet, confirmDialog, inputDialog, modalOpen } from './ui/dom.js';
 import { computeNumbering, matchClues, symmetryTargets, parseEnumeration, SYMMETRY } from './model.js';
 import { savePuzzle, loadSettings, saveSettings } from './storage.js';
 import { optionsFromPuzzle } from './solver.js';
@@ -25,22 +25,6 @@ function fmtTime(ms) {
   const ss = s % 60;
   const p = (n) => String(n).padStart(2, '0');
   return hh ? `${hh}:${p(mm)}:${p(ss)}` : `${mm}:${p(ss)}`;
-}
-
-function actionSheet(title, items) {
-  const body = h('div', { class: 'sheet' });
-  const d = dialog({ title, body, buttons: [{ label: 'Close', value: null }] });
-  items.forEach((it) =>
-    body.append(
-      h(
-        'button',
-        { class: 'sheet-item' + (it.danger ? ' danger' : ''), type: 'button', onclick: () => { d.close(); it.run(); } },
-        h('span', { class: 'si-label' }, it.label),
-        it.hint ? h('span', { class: 'si-hint' }, it.hint) : null
-      )
-    )
-  );
-  return d;
 }
 
 export function openPlay(puzzle, { container, onExit }) {

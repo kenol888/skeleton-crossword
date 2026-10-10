@@ -90,6 +90,23 @@ export function dialog({ title, body, buttons = [{ label: 'OK', value: true, pri
   return { promise, close, el: box, bodyEl };
 }
 
+/** A list of big tappable actions in a dialog. items: [{ label, hint?, run, danger? }] */
+export function actionSheet(title, items) {
+  const body = h('div', { class: 'sheet' });
+  const d = dialog({ title, body, buttons: [{ label: 'Close', value: null }] });
+  items.forEach((it) =>
+    body.append(
+      h(
+        'button',
+        { class: 'sheet-item' + (it.danger ? ' danger' : ''), type: 'button', onclick: () => { d.close(); it.run(); } },
+        h('span', { class: 'si-label' }, it.label),
+        it.hint ? h('span', { class: 'si-hint' }, it.hint) : null
+      )
+    )
+  );
+  return d;
+}
+
 export function modalOpen() {
   return !!document.querySelector('#modal-root .modal-overlay');
 }

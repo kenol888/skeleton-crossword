@@ -1,4 +1,33 @@
 {
-  "version": 6,
-  "built": "2026-10-10T03:52:48.340Z"
+  "version": 7,
+  "built": "2026-10-10T04:01:42.171Z",
+  "files": [
+    "css/styles.css",
+    "icons/apple-touch-icon.png",
+    "icons/icon-192.png",
+    "icons/icon-512.png",
+    "index.html",
+    "js/clueFinder.js",
+    "js/clueParser.js",
+    "js/clueReader.js",
+    "js/gridDetect.js",
+    "js/homeArt.js",
+    "js/imageImport.js",
+    "js/importFlow.js",
+    "js/main.js",
+    "js/model.js",
+    "js/ocr.js",
+    "js/play.js",
+    "js/solver.js",
+    "js/solverClient.js",
+    "js/solverWorker.js",
+    "js/storage.js",
+    "js/ui/clues.js",
+    "js/ui/dom.js",
+    "js/ui/grid.js",
+    "js/ui/keyboard.js",
+    "js/ui/wordFinder.js",
+    "js/version.js",
+    "manifest.webmanifest"
+  ]
 }

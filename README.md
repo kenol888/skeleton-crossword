@@ -17,7 +17,7 @@ The Sunday Express does not publish its Skeleton crossword online, so the app do
 - **Play.** Letters mode and Squares mode, symmetric black squares (mirror, half-turn or none), live clue numbers, pencil entries, undo and redo. The clues stay in view: the on-screen keyboard only slides up when you tap a square to type (and has a Hide button), or can be set to Always or Never in Settings. Hardware keyboards work too, with Tab for the next clue and Space to switch direction.
 - **Crossing off.** A clue is struck through automatically when its word is filled in and its length fits the grid. Tap the circle to cross one off by hand.
 - **Word finder.** Pattern search (`C?T??`) and anagrams, honouring multi-word answers like (4,7). Results go into the grid in pencil.
-- **Library.** Puzzles autosave on the device. Duplicate, export (JSON) and import to back up or move between devices. The home screen shows the app version and release time, with a Check for updates button and an Update now button when a newer version is published.
+- **Home screen.** One big Import from image button, over a skull drawn as a crossword grid, and a shelf of your puzzles. Each puzzle card shows a live mini picture of its grid and your progress; the ... menu renames, duplicates or deletes it. Puzzles autosave on the device. The home screen also shows the app version and release time, with a Check for updates button and an Update now button when a newer version is published.
 - There is no answer key, so the app can tell you a grid is complete but not that the answers are right.
 
 ## Run it
@@ -60,7 +60,8 @@ No build step and no framework: plain ES modules.
 | `js/importFlow.js` | The new-puzzle wizard |
 | `js/play.js`, `js/ui/*` | Play screen, grid, clue lists, keyboard, word finder |
 | `js/storage.js` | localStorage with an in-memory fallback |
-| `sw.js` | Offline cache |
-| `version.json`, `js/version.js` | Version number and release time, shown on the home screen (written by `node tools/stamp.mjs`) |
+| `js/homeArt.js` | The skull artwork and puzzle thumbnails for the home screen (SVG) |
+| `sw.js` | Offline cache, filled from the file list in `version.json` |
+| `version.json`, `js/version.js` | Version number, release time and the list of app files (written by `node tools/stamp.mjs`) |
 
 `samples/sample-skeleton.json` is an invented 15 by 11 puzzle in the Sunday Express format (made-up clues, no letter counts, letters that do not form real crossing answers), there to try the features. `node tools/build-sample.mjs` rebuilds it.

@@ -3,6 +3,7 @@
 import { recognize, recognizeWords } from './ocr.js';
 import { locateClues } from './clueFinder.js';
 import { cropRect } from './imageImport.js';
+import { parseClues } from './clueParser.js';
 
 async function readColumns(canvas, loc, onStatus, toSource) {
   onStatus('Reading the Across clues…');
@@ -23,9 +24,32 @@ async function readColumns(canvas, loc, onStatus, toSource) {
 export async function findClues(canvas, grid, onStatus = () => {}) {
   onStatus('Looking for the clues…');
   const page = await recognizeWords(canvas, { onProgress: (s, p) => onStatus(`Looking for the clues… ${Math.round(p * 100)}%`) });
-  const loc = locateClues(page.words, grid, { w: canvas.width, h: canvas.height });
-  if (!loc) return null;
-  return readColumns(canvas, loc, onStatus, (b) => ({ x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 }));
+  const size = { w: canvas.width, h: canvas.height };
+  const toSource = (b) => ({ x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 });
+  const attempt = async (opts) => {
+    const loc = locateClues(page.words, grid, size, opts);
+    if (!loc) return null;
+    const r = await readColumns(canvas, loc, onStatus, toSource);
+    r.missing = missingNumbers(r.text);
+    return r;
+  };
+  let best = await attempt({});
+  // every clue number from 1 up to the highest should appear: if some are missing, the list may
+  // have been cut short, so look again with a more forgiving idea of where the lists end
+  if (best && best.missing > 0) {
+    onStatus('Some clue numbers are missing. Taking a second look…');
+    const alt = await attempt({ gapFactor: 3.2 });
+    if (alt && alt.missing < best.missing) best = alt;
+  }
+  return best;
+}
+
+/** How many numbers between 1 and the highest clue number appear in neither list. */
+export function missingNumbers(text) {
+  const parsed = parseClues(text);
+  const seen = new Set([...parsed.across, ...parsed.down].map((c) => c.number));
+  const max = Math.max(0, ...seen);
+  return max - seen.size;
 }
 
 /**

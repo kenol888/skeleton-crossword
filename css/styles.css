@@ -217,18 +217,28 @@ button { touch-action: manipulation; }
 .warp-canvas { display: block; width: 100%; height: 100%; border-radius: 4px; }
 .hint-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(var(--cols), 1fr); grid-template-rows: repeat(var(--rows), 1fr); }
 .hcell {
-  padding: 0; border: 1px solid rgba(36, 104, 216, 0.3); background: transparent; color: var(--paper-ink); cursor: pointer;
-  font: 700 clamp(9px, 2.4vw, 20px)/1 var(--f-mono); min-width: 0;
+  position: relative; padding: 0; border: 1px solid rgba(36, 104, 216, 0.3); background: transparent; color: var(--paper-ink); cursor: pointer; min-width: 0;
 }
-/* stripes of solid colour leave the black beneath showing through, so a black square stays visible */
-.hcell.block, .sw.block { background: repeating-linear-gradient(135deg, var(--mark) 0 5px, transparent 5px 10px); box-shadow: inset 0 0 0 3px var(--mark); }
-.hcell.number, .sw.number { background: var(--mark); color: var(--mark-ink); }
-.hcell.letter, .sw.letter { background: var(--sel); color: var(--sel-ink); }
-.hcell.unread, .sw.unread { background: rgba(255, 255, 255, 0.7); color: #b13c2b; outline: 2px dashed #b13c2b; outline-offset: -3px; }
+/* markers stay see-through so the printed picture can still be read underneath */
+.hcell.block, .sw.block { background: repeating-linear-gradient(135deg, rgba(36, 104, 216, 0.6) 0 4px, transparent 4px 9px); box-shadow: inset 0 0 0 2px var(--mark); }
+.hcell.number, .sw.number { background: rgba(36, 104, 216, 0.1); box-shadow: inset 0 0 0 2px var(--mark); }
+.hcell.letter, .sw.letter { background: rgba(240, 205, 110, 0.12); box-shadow: inset 0 0 0 2px var(--sel); }
+.hcell.unread, .sw.unread { background: rgba(177, 60, 43, 0.08); outline: 2px dashed #b13c2b; outline-offset: -3px; }
+/* the number or letter we read is a small badge in the corner, not a cover over the square */
+.hcell::after {
+  content: attr(data-label); position: absolute; right: 2px; bottom: 2px; padding: 0 4px; border-radius: 3px;
+  font: 700 clamp(9px, 1.5vw, 13px)/1.45 var(--f-mono);
+}
+.hcell.number::after { background: var(--mark); color: var(--mark-ink); }
+.hcell.letter::after { background: var(--sel); color: var(--sel-ink); }
+.hcell.unread::after { background: #b13c2b; color: #fff; }
+.warp-wrap.compare .hint-grid { opacity: 0; pointer-events: none; }
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 14px; }
 .legend li { display: flex; align-items: center; gap: 8px; }
 .sw { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 4px; font: 700 13px var(--f-mono); }
 .sw.block { background-color: #101419; }
+.sw.number { background-color: transparent; color: var(--mark); }
+.sw.letter { background-color: transparent; color: var(--sel); }
 .tool-help { color: var(--ink-soft); font-size: 14px; min-height: 1.4em; }
 .lbl { font-size: 13px; color: var(--ink-soft); letter-spacing: 0.02em; }
 .clues-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }

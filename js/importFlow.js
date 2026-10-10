@@ -263,6 +263,14 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     const counts = h('span', { class: 'muted' });
     const help = h('p', { class: 'tool-help' });
     const nextBtn = btn('Next ›', () => go(4), 'primary');
+    const warp = h('div', { class: 'warp-wrap', style: `aspect-ratio:${st.warped.W} / ${st.warped.H};--cols:${C};--rows:${R}` }, cv, over);
+    const compareBtn = h('button', { class: 'btn small', type: 'button', 'aria-pressed': 'false' }, 'Compare with picture');
+    compareBtn.addEventListener('click', () => {
+      const on = warp.classList.toggle('compare');
+      compareBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      compareBtn.textContent = on ? 'Showing the picture only. Tap to show marks' : 'Compare with picture';
+      compareBtn.classList.toggle('primary', on);
+    });
 
     const cellEls = st.cells.map((c, i) => {
       const b = h('button', { class: 'hcell', type: 'button', 'aria-label': `Row ${Math.floor(i / C) + 1}, column ${(i % C) + 1}` });
@@ -275,7 +283,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       const el = cellEls[i];
       const unread = c.kind === 'none' && c.maybe;
       el.className = 'hcell ' + c.kind + (unread ? ' unread' : '');
-      el.textContent = c.kind === 'number' || c.kind === 'letter' ? c.value : unread ? '?' : '';
+      el.dataset.label = c.kind === 'number' || c.kind === 'letter' ? c.value : unread ? '?' : '';
       el.title = unread ? 'There is print here that the app could not read' : '';
     }
     st.cells.forEach((_, i) => paintCell(i));
@@ -424,14 +432,14 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
           'ul',
           { class: 'legend' },
           h('li', null, h('i', { class: 'sw block' }), 'Black square printed in the puzzle'),
-          h('li', null, h('i', { class: 'sw number' }, '7'), 'Printed clue number'),
+          h('li', null, h('i', { class: 'sw number' }, '7'), 'Printed clue number (badge in the corner)'),
           h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Printed letter'),
           h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read')
         ),
         status,
         h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Fix a mistake:'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Tool' }, toolBtns), counts),
-        help,
-        h('div', { class: 'warp-wrap', style: `aspect-ratio:${st.warped.W} / ${st.warped.H};--cols:${C};--rows:${R}` }, cv, over),
+        h('div', { class: 'row' }, help, h('span', { class: 'grow' }), compareBtn),
+        warp,
         h('div', { class: 'size-row' }, stepper('Columns', C, (v) => setDims(R, v)), stepper('Rows', R, (v) => setDims(v, C))),
         h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
         nav(btn('‹ Back', () => go(2), 'quiet'), nextBtn)

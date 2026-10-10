@@ -10,14 +10,14 @@ The Sunday Express does not publish its Skeleton crossword online, so the app do
 - **Import** a photo, screenshot or PDF of the whole page. Four short steps (Photo, Corners, Grid, Clues), and most of the work is automatic:
   - A sideways page is turned the right way up (there are also Turn left and Turn right buttons).
   - The grid is found on the page (if there is more than one crossword, "Try another grid on the page" cycles through them), straightened, and its columns and rows are counted. Drag the corner handles if the box is off.
-  - Printed black squares, clue numbers and letters are detected and read on their own. Black squares show as blue stripes, numbers and letters as labels, and anything unreadable as a dashed ?. Fix mistakes with the Black square, Number, Letter and Clear tools.
+  - Printed black squares, clue numbers and letters are detected and read on their own. The marks are see-through (blue stripes for black squares, a frame and a corner badge for numbers and letters, a dashed ? for anything unreadable) so the printed picture shows underneath, and Compare with picture hides them completely. Fix mistakes with the Black square, Number, Letter and Clear tools.
   - The Across and Down clue lists are found next to the grid, read, and sorted into an editable list. If that fails, draw a box round the clues (both lists together is fine), or paste or type them.
   - Letter counts in the clues are optional.
 - **Solves the layout.** The clue numbers say which numbers start an across word, a down word or both, and the symmetry copies every square to its mirrors. From that alone the app usually narrows the grid to a handful of layouts (8 to 10 for typical puzzles) in a fraction of a second. It places the black squares that every possible layout shares, and tells you which clues could still have more than one length. As you solve answers, tap *Set letter count* on a clue and the choices narrow further, often to one. These tools are opt-in: *Check my layout* (tells you whether your squares fit, without revealing anything), *Hint* (places one certain square and its mirrors) and *Reveal whole layout*.
 - **Play.** Letters mode and Squares mode, symmetric black squares (mirror, half-turn or none), live clue numbers, pencil entries, undo and redo. The clues stay in view: the on-screen keyboard only slides up when you tap a square to type (and has a Hide button), or can be set to Always or Never in Settings. Hardware keyboards work too, with Tab for the next clue and Space to switch direction.
 - **Crossing off.** A clue is struck through automatically when its word is filled in and its length fits the grid. Tap the circle to cross one off by hand.
 - **Word finder.** Pattern search (`C?T??`) and anagrams, honouring multi-word answers like (4,7). Results go into the grid in pencil.
-- **Library.** Puzzles autosave on the device. Duplicate, export (JSON) and import to back up or move between devices.
+- **Library.** Puzzles autosave on the device. Duplicate, export (JSON) and import to back up or move between devices. The home screen shows the app version and release time, with a Check for updates button and an Update now button when a newer version is published.
 - There is no answer key, so the app can tell you a grid is complete but not that the answers are right.
 
 ## Run it

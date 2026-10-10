@@ -184,24 +184,35 @@ function card(entry) {
 
 // ------------------------------------------------------------------ version
 // Shows which version this copy is and, when online, whether a newer one has been published.
-let latest = null; // { version, built } from the server, once known
-let checking = false;
+// The answer is only trusted if the last check succeeded: a failed check says so, rather than
+// leaving an old "latest version" on screen.
+const upd = { state: 'idle', latest: null, checkedAt: null }; // state: idle | checking | ok | error
 
 const fmtBuilt = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+const fmtTime = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 async function checkForUpdate() {
-  if (checking) return;
-  checking = true;
+  if (upd.state === 'checking') return;
+  upd.state = 'checking';
+  refreshVersionLine();
   try {
+    // a unique address plus no-store, so neither the browser nor the host's cache can answer
     const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
-    if (res.ok) latest = await res.json();
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    if (!Number.isInteger(data.version)) throw new Error('bad version file');
+    upd.latest = data;
+    upd.checkedAt = new Date();
+    upd.state = 'ok';
+    // also ask the browser to look for a new offline-cache script, which is what applies the update
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+    } catch (e) { /* not available in every browser */ }
   } catch (e) {
-    /* offline: just show the version we have */
-  } finally {
-    checking = false;
-    const el = document.getElementById('version-line');
-    if (el) fillVersionLine(el);
+    upd.state = 'error';
   }
+  refreshVersionLine();
 }
 
 async function reloadLatest() {
@@ -214,25 +225,30 @@ async function reloadLatest() {
   location.reload();
 }
 
+function refreshVersionLine() {
+  const el = document.getElementById('version-line');
+  if (el) fillVersionLine(el);
+}
+
 function fillVersionLine(el) {
   el.textContent = '';
   el.append(h('span', null, `Version ${VERSION} \u00B7 ${fmtBuilt(BUILT)}`));
-  if (latest && latest.version > VERSION) {
-    el.append(
-      h('span', { class: 'ver-new' }, `Version ${latest.version} is available`),
-      h('button', { class: 'btn small primary', type: 'button', onclick: reloadLatest }, 'Update now')
-    );
-  } else if (latest) {
-    el.append(h('span', { class: 'ver-ok' }, 'Latest version'));
-  } else if (checking) {
-    el.append(h('span', { class: 'muted' }, 'Checking for updates\u2026'));
+  if (upd.state === 'checking') el.append(h('span', { class: 'muted' }, 'Checking for updates\u2026'));
+  else if (upd.state === 'error') el.append(h('span', { class: 'ver-new' }, "Couldn't check (offline?)"));
+  else if (upd.state === 'ok') {
+    if (upd.latest.version > VERSION) {
+      el.append(h('span', { class: 'ver-new' }, `Version ${upd.latest.version} is available`), h('button', { class: 'btn small primary', type: 'button', onclick: reloadLatest }, 'Update now'));
+    } else {
+      el.append(h('span', { class: 'ver-ok' }, `Latest version \u00B7 checked ${fmtTime(upd.checkedAt)}`));
+    }
   }
+  if (upd.state !== 'checking') el.append(h('button', { class: 'btn small', type: 'button', onclick: checkForUpdate }, 'Check for updates'));
 }
 
 function versionLine() {
   const el = h('p', { class: 'version', id: 'version-line' });
   fillVersionLine(el);
-  checkForUpdate();
+  if (upd.state === 'idle') checkForUpdate(); // check once when the app opens
   return el;
 }
 

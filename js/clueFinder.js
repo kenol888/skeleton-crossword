@@ -22,56 +22,70 @@ function distToRect(w, r) {
   return Math.hypot(dx, dy);
 }
 
-/** Group words that sit on the same text line (centres within `tol`), top to bottom. */
-function toLines(words, tol) {
-  const lines = [];
-  for (const w of words.slice().sort((p, q) => p.y0 - q.y0)) {
-    const mid = cy(w);
-    const line = lines.find((l) => Math.abs(l.cy - mid) <= tol);
-    if (!line) lines.push({ cy: mid, y0: w.y0, y1: w.y1, x0: w.x0, x1: w.x1, h: height(w) });
-    else {
-      line.y0 = Math.min(line.y0, w.y0);
-      line.y1 = Math.max(line.y1, w.y1);
-      line.x0 = Math.min(line.x0, w.x0);
-      line.x1 = Math.max(line.x1, w.x1);
-      line.h = line.y1 - line.y0;
-      line.cy = (line.y0 + line.y1) / 2;
-    }
-  }
-  return lines.sort((p, q) => p.y0 - q.y0);
-}
+const median = (arr) => {
+  const a = arr.slice().sort((p, q) => p - q);
+  return a.length ? a[a.length >> 1] : 0;
+};
 
 /**
- * Measure one clue list: from just under its heading down to where its text stops
- * (a gap bigger than a couple of text lines, or a much taller line such as a banner).
+ * Measure one clue list: from just under its heading down to where its text stops.
+ *
+ * It uses only the vertical centres of the words, never their box heights. The text reader's
+ * boxes differ between browsers and devices (some are several lines tall, or a few pixels off),
+ * and judging by height made the list end too early. Text lines are found by clustering word
+ * centres; the list ends where the gap to the next line is much more than the usual line pitch.
+ * `gapFactor` is how many line pitches of empty space end the list.
  */
-export function measureSection(words, heading, xLo, xHi, yHi) {
-  const inside = words.filter((w) => w !== heading && w.x0 >= xLo && w.x0 < xHi && w.y0 >= heading.y1 - 2 && w.y0 < yHi);
+export function measureSection(words, heading, xLo, xHi, yHi, gapFactor = 1.9) {
+  const inside = words
+    .filter((w) => w !== heading && w.x0 >= xLo && w.x0 < xHi && w.y0 >= heading.y1 - 2 && w.y0 < yHi)
+    .sort((p, q) => cy(p) - cy(q));
   if (!inside.length) return null;
-  // a misread word can have a box several lines tall: judge line height by the typical word
-  const hs = inside.map(height).sort((p, q) => p - q);
-  const typical = hs[hs.length >> 1] || 10;
-  const lines = toLines(inside.filter((w) => height(w) <= 2.2 * typical), 0.55 * typical);
-  if (!lines.length) return null;
-  let bottom = heading.y1;
-  let right = 0;
-  let count = 0;
-  for (const l of lines) {
-    if (l.y0 - bottom > Math.max(2.2 * typical, 18)) break;
-    if (l.h > 1.8 * typical) break;
-    bottom = Math.max(bottom, l.y1);
-    right = Math.max(right, l.x1);
+  // typical text size: the middle value is not thrown off by a few oversize boxes
+  const typical = median(inside.slice(0, 40).map(height)) || 10;
+  const tol = 0.6 * typical;
+
+  // cluster word centres into lines
+  const lines = [];
+  for (const w of inside) {
+    const mid = cy(w);
+    const line = lines.find((l) => Math.abs(l.cy - mid) <= tol);
+    if (!line) lines.push({ cy: mid, sum: mid, n: 1, words: [w] });
+    else {
+      line.sum += mid;
+      line.n++;
+      line.cy = line.sum / line.n;
+      line.words.push(w);
+    }
+  }
+  lines.sort((p, q) => p.cy - q.cy);
+
+  // usual distance between lines: ignore tiny steps, which come from slanted text splitting a line
+  const steps = [];
+  for (let i = 1; i < Math.min(lines.length, 16); i++) {
+    const d = lines[i].cy - lines[i - 1].cy;
+    if (d > 0.8 * typical) steps.push(d);
+  }
+  const pitch = median(steps) || 1.6 * typical;
+  const maxGap = Math.max(gapFactor * pitch, 2 * typical);
+
+  let last = lines[0];
+  let count = 1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].cy - last.cy > maxGap) break;
+    last = lines[i];
     count++;
   }
-  if (!count) return null;
-  return { x0: xLo, y0: heading.y1 + 1, x1: right, y1: bottom, lines: count };
+  const accepted = lines.slice(0, count);
+  const right = Math.max(...accepted.flatMap((l) => l.words.map((w) => w.x1)));
+  return { x0: xLo, y0: heading.y1 + 1, x1: right, y1: last.cy + 0.7 * typical, lines: count };
 }
 
 /**
  * Returns { layout:'columns'|'stacked', across:{x0,y0,x1,y1}, down:{...} } or null.
  * The boxes hold the clue text only (the headings are left out).
  */
-export function locateClues(words, grid, page) {
+export function locateClues(words, grid, page, { gapFactor = 1.9 } = {}) {
   const acrossHeads = words.filter((w) => isHeading(w, 'ACROSS'));
   const downHeads = words.filter((w) => isHeading(w, 'DOWN'));
   let best = null;
@@ -91,12 +105,12 @@ export function locateClues(words, grid, page) {
   let down;
   if (best.layout === 'columns') {
     const colW = d.x0 - a.x0;
-    across = measureSection(words, a, a.x0 - 8, d.x0 - 8, Infinity);
-    down = measureSection(words, d, d.x0 - 8, Math.min(page.w, d.x0 + 1.3 * colW), Infinity);
+    across = measureSection(words, a, a.x0 - 8, d.x0 - 8, Infinity, gapFactor);
+    down = measureSection(words, d, d.x0 - 8, Math.min(page.w, d.x0 + 1.3 * colW), Infinity, gapFactor);
   } else {
     const colW = Math.max(300, grid ? grid.x1 - grid.x0 : 300);
-    across = measureSection(words, a, a.x0 - 8, Math.min(page.w, a.x0 + colW), d.y0 - 2);
-    down = measureSection(words, d, d.x0 - 8, Math.min(page.w, d.x0 + colW), Infinity);
+    across = measureSection(words, a, a.x0 - 8, Math.min(page.w, a.x0 + colW), d.y0 - 2, gapFactor);
+    down = measureSection(words, d, d.x0 - 8, Math.min(page.w, d.x0 + colW), Infinity, gapFactor);
   }
   if (!across || !down) return null;
   const pad = 3;

@@ -258,7 +258,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     const cv = greyToCanvas(st.warped.grey, st.warped.W, st.warped.H);
     cv.className = 'warp-canvas';
     const over = h('div', { class: 'hint-grid', style: `--cols:${C};--rows:${R}` });
-    const status = h('p', { class: 'status', 'aria-live': 'polite' });
+    const status = h('p', { class: 'status reserve', 'aria-live': 'polite' });
     const counts = h('span', { class: 'muted' });
     const help = h('p', { class: 'tool-help' });
     const nextBtn = btn('Next ›', () => go(4), 'primary');
@@ -510,7 +510,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
 
   function stepClues() {
     const token = ++st.clueToken;
-    const status = h('p', { class: 'status', 'aria-live': 'polite' }, st.clueStatus);
+    const status = h('p', { class: 'status reserve', 'aria-live': 'polite' }, st.clueStatus);
     const setStatus = (m) => {
       st.clueStatus = m;
       if (status.isConnected) status.textContent = m;

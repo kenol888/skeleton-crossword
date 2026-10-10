@@ -24,6 +24,13 @@
   --mark: #2468d8;
   --mark-ink: #ffffff;
   --shadow: 0 8px 30px rgba(20, 28, 40, 0.18);
+  /* fixed heights of what sits under the grid in the play screen, and the room the grid leaves for them */
+  --bar-h: 104px;
+  --tool-h: 52px;
+  --key-h: 52px;
+  --kb-h: 232px;
+  --reserve: 548px;
+  --top-extra: 0px; /* the top bar takes a second row on narrow screens */
   --f-display: 'Newsreader', Georgia, 'Times New Roman', serif;
   --f-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --f-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -166,7 +173,7 @@ button { touch-action: manipulation; }
   display: inline-flex; align-items: center; gap: 12px; box-shadow: 0 14px 28px -14px var(--accent);
 }
 .btn.xl svg { flex: none; }
-.version { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.version { display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: 6px 10px; margin: 6px 0 0; min-height: 5.2em; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .ver-num { font-family: var(--f-mono); font-weight: 600; color: var(--ink); }
 .ver-ok { color: var(--ok); font-weight: 600; }
 .ver-new { color: var(--bad); font-weight: 600; }
@@ -239,6 +246,7 @@ button { touch-action: manipulation; }
 .drop strong { font: 600 20px/1.2 var(--f-display); }
 .drop span { color: var(--ink-soft); }
 .status { min-height: 1.4em; color: var(--ink-soft); font-size: 14px; }
+.status.reserve { min-height: 4.4em; }
 .status.busy::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 8px; vertical-align: -2px; border: 2px solid var(--line); border-top-color: var(--mark); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .crop-wrap { position: relative; width: min(100%, 900px); margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -315,9 +323,9 @@ button { touch-action: manipulation; }
 .play-top .seg { flex: none; }
 .play-title { font: 600 18px/1.2 var(--f-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 6ch; flex: 1 1 8ch; }
 .btn.toggle.on { background: var(--accent); color: var(--accent-ink); }
-.timer { font: 500 15px var(--f-mono); font-variant-numeric: tabular-nums; padding: 0 6px; color: var(--ink-soft); }
+.timer { font: 500 15px var(--f-mono); font-variant-numeric: tabular-nums; padding: 0 6px; color: var(--ink-soft); min-width: 5.2ch; text-align: right; }
 .play-main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px 16px 12px; }
-.grid-pane { --gw: clamp(280px, min(calc(100vw - 32px), calc((100dvh - 440px) * var(--cols) / var(--rows))), 1000px); width: var(--gw); aspect-ratio: var(--cols) / var(--rows); flex: none; margin: 0 auto; }
+.grid-pane { --gw: clamp(280px, min(calc(100vw - 32px), calc((100dvh - var(--reserve) - var(--top-extra)) * var(--cols) / var(--rows))), 1000px); width: var(--gw); aspect-ratio: var(--cols) / var(--rows); flex: none; margin: 0 auto; }
 .side-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 @media (orientation: landscape) and (min-width: 700px) {
   .play-main { flex-direction: row; align-items: flex-start; gap: 18px; padding: 12px 16px; }
@@ -348,14 +356,13 @@ button { touch-action: manipulation; }
 .cell.user-num .num { color: var(--accent); font-weight: 700; }
 .cell.sel.user-num .num, .cell.sel.printed-num .num { color: var(--sel-ink); }
 
-.clue-bar { flex: none; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; min-height: 66px; display: grid; gap: 2px; align-content: center; }
+.clue-bar { flex: none; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; height: var(--bar-h); overflow-y: auto; display: grid; gap: 2px; align-content: start; }
 .cb-main { font-size: 17px; line-height: 1.3; }
 .cb-num { font-family: var(--f-display); font-weight: 600; font-size: 19px; }
 .cb-pattern { font: 500 16px var(--f-mono); letter-spacing: 0.22em; color: var(--ink-soft); overflow-wrap: anywhere; }
 .cb-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; }
 .btn.small { min-height: 36px; padding: 0 10px; font-size: 13px; }
 .cb-foot .grow { flex: 1; }
-.kb-head { display: flex; justify-content: flex-end; }
 .ce { color: var(--ink-soft); white-space: nowrap; }
 
 .clue-lists { flex: 1; min-height: 0; display: flex; gap: 10px; }
@@ -385,14 +392,15 @@ button { touch-action: manipulation; }
 .kb-row { display: flex; gap: 5px; justify-content: center; }
 .kb-letters .kb-row:nth-child(2) { padding: 0 3%; }
 .key {
-  flex: 1; min-width: 0; min-height: 46px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface);
+  flex: 1; min-width: 0; min-height: var(--key-h); border-radius: 9px; border: 1px solid var(--line); background: var(--surface);
   font: 600 18px var(--f-mono); cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;
 }
 .key:active { background: var(--word); }
 .key.wide { flex: 1.6; }
 .key.tool { font: 500 13px var(--f-ui); }
 .key.tool.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.kb-row.tools .key { min-height: 42px; }
+.kb-row.tools .key { min-height: calc(var(--key-h) - 8px); }
+.kb-row.tools .key.hide { flex: 0.6; font-size: 22px; }
 
 .orig-bar { display: flex; gap: 8px; margin-bottom: 8px; }
 .orig-wrap { max-height: 62dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
@@ -427,21 +435,41 @@ button { touch-action: manipulation; }
 @media (max-width: 640px) { .ibtn .ilabel { display: none; } }
 .sq-tools { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .sq-tool {
-  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 8px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 8px; height: var(--tool-h); padding: 0 8px; border-radius: 12px; white-space: nowrap; overflow: hidden; min-width: 0;
   border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 600 15px var(--f-ui); cursor: pointer;
 }
 .sq-tool:active { background: var(--surface-2); }
 .sq-tool.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sq-tool:disabled { opacity: 0.4; cursor: default; }
+.sq-tool span:last-child { overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 460px) { .sq-tool span:last-child { font-size: 13px; } }
 
 .kb-letters, .kb-numbers { display: grid; gap: 6px; }
 .kb-letters[hidden], .kb-numbers[hidden], .kb-row[hidden] { display: none; }
 .kb-numbers { width: 100%; max-width: 440px; margin: 0 auto; }
-.kb-numbers .key { min-height: 56px; font-size: 22px; }
+.kb-numbers .key { font-size: 22px; }
+.kb-body { display: grid; gap: 6px; align-content: start; min-height: var(--kb-h); }
 
 .home-gear {
   position: absolute; top: clamp(14px, 3vw, 28px); right: clamp(16px, 4vw, 48px); z-index: 2; width: 48px; height: 48px; border-radius: 50%;
   display: grid; place-items: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft); cursor: pointer;
 }
 .home-gear:active { background: var(--surface-2); }
+
+/* shorter screens (small phones, iPads in landscape on smaller models): the same layout, a little tighter */
+@media (max-height: 800px) {
+  :root { --bar-h: 92px; --tool-h: 44px; --key-h: 44px; --kb-h: 198px; --reserve: 490px; }
+  .cb-main { font-size: 15px; }
+}
+/* very short screens (a small phone upright) */
+@media (max-height: 700px) {
+  :root { --bar-h: 76px; --tool-h: 40px; --key-h: 38px; --kb-h: 170px; --reserve: 432px; }
+}
+/* phones on their side: too short for everything at once, so the right-hand column scrolls instead of being cut off */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --bar-h: 84px; --tool-h: 40px; --key-h: 38px; --kb-h: 172px; }
+  .side-pane { overflow-y: scroll; scrollbar-gutter: stable; } /* always reserve the scrollbar, so the column never changes width */
+  .clue-lists { min-height: 150px; }
+}
+
+@media (max-width: 640px) { :root { --top-extra: 36px; } }

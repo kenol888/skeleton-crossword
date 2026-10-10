@@ -7,7 +7,6 @@ const PAD = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9']];
 
 export function createKeyboard(cb) {
   const root = h('div', { class: 'kb', role: 'group', 'aria-label': 'Keyboard' });
-  root.append(h('div', { class: 'kb-head' }, h('button', { class: 'btn quiet small', type: 'button', 'aria-label': 'Hide keyboard', onclick: () => cb.hide() }, 'Hide keyboard ⌄')));
   // pointerdown + preventDefault keeps focus where it is and reacts instantly on touch
   const press = (fn) => (e) => {
     e.preventDefault();
@@ -32,8 +31,10 @@ export function createKeyboard(cb) {
   const pencilKey = key('Pencil', 'tool', cb.togglePencil, 'Pencil');
   const prevKey = key('‹ Clue', 'tool', cb.prev, 'Previous clue');
   const nextKey = key('Clue ›', 'tool', cb.next, 'Next clue');
-  const tools = h('div', { class: 'kb-row tools' }, prevKey, dirKey, pencilKey, nextKey);
-  root.append(letters, numbers, tools);
+  const hideKey = key('⌄', 'tool hide', cb.hide, 'Hide keyboard');
+  const tools = h('div', { class: 'kb-row tools' }, prevKey, dirKey, pencilKey, nextKey, hideKey);
+  // one fixed-height area, so switching between letters and numbers never moves anything
+  root.append(h('div', { class: 'kb-body' }, letters, numbers, tools));
 
   function setState({ dir, pencil, input }) {
     letters.hidden = input === 'number';

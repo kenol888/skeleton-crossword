@@ -626,7 +626,7 @@ export function openPlay(puzzle, { container, onExit }) {
   const kb = createKeyboard({
     letter: typeLetter,
     digit: typeDigit,
-    done: () => { finishNumber(); S.input = 'letter'; render(); },
+    done: () => { finishNumber(); S.input = 'letter'; if (S.settings.keyboard === 'auto') S.kbOpen = false; render(); },
     backspace,
     toggleDir,
     togglePencil: () => { S.pencil = !S.pencil; render(); },

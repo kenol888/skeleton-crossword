@@ -494,3 +494,6 @@ button { touch-action: manipulation; }
 .define { display: grid; gap: 6px; max-height: 55dvh; overflow-y: auto; }
 .define-part { font: italic 600 15px var(--f-display); color: var(--ink-soft); margin: 6px 0 0; }
 .define-defs { margin: 0; padding-left: 20px; display: grid; gap: 4px; line-height: 1.4; }
+.syn-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.syn { min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); font: 500 14px var(--f-ui); cursor: pointer; touch-action: manipulation; }
+.syn:active { background: var(--word); }

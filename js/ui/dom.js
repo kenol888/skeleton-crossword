@@ -138,6 +138,9 @@ export function inputDialog(title, label, value = '', { inputmode, maxlength, ok
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') d.close('ok');
   });
-  setTimeout(() => { input.focus(); input.select(); }, 30);
+  // focus straight away, still inside the tap that opened the dialog: iPad only shows the keyboard for that
+  input.focus({ preventScroll: true });
+  input.select();
+  setTimeout(() => { if (document.activeElement !== input) { input.focus(); input.select(); } }, 30);
   return d.promise.then((v) => (v === 'ok' ? input.value : null));
 }

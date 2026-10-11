@@ -1,6 +1,6 @@
 // New-puzzle wizard: photo or PDF -> corners -> check the grid -> clues -> play.
 // "Blank puzzle" skips the first three steps.
-import { h, toast, dialog, inputDialog } from './ui/dom.js';
+import { h, toast, dialog, inputDialog, confirmDialog } from './ui/dom.js';
 import { createCell, createPuzzle, makeClue, parseEnumeration, computeNumbering, SYMMETRY } from './model.js';
 import { parseClues } from './clueParser.js';
 import { recognize, OCR_FAILED } from './ocr.js';
@@ -237,7 +237,16 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       await new Promise((r) => setTimeout(r, 20));
       try {
         st.warped = straighten(st.src, st.quad);
-        applyAnalysis(analyseGrid(st.warped));
+        let a = analyseGrid(st.warped);
+        // A skeleton is wider than tall (15 by 11). A square grid is almost certainly an ordinary numbered crossword.
+        if (st.kind === 'skeleton' && a.rows === a.cols && a.rows >= 11) {
+          status.textContent = '';
+          if (await confirmDialog('This looks like a standard crossword', 'The grid is square, but a skeleton crossword is wider than it is tall. Read it as a standard crossword, with its printed numbers and letter counts?', 'Read as standard')) {
+            st.kind = 'standard';
+            a = analyseGrid(st.warped);
+          }
+        }
+        applyAnalysis(a);
         go(3);
       } catch (e) {
         status.textContent = '';

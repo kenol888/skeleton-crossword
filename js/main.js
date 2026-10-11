@@ -9,6 +9,9 @@ import { icon } from './ui/icons.js';
 import { applyTheme, currentTheme, openAppSettings } from './theme.js';
 import { VERSION, BUILT } from './version.js';
 
+// Safari's pinch and double-tap zoom would shift the fixed layout.
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+
 const screens = {
   library: $('#screen-library'),
   import: $('#screen-import'),

@@ -88,3 +88,44 @@ DOWN
   assert.ok(!r.warnings.some((w) => /letter count/.test(w)), r.warnings.join('|'));
   assert.ok(r.warnings.some((w) => /missing from both lists: 4, 5, 7, 8, 9, 10/.test(w)), r.warnings.join('|'));
 });
+
+test('letter counts the text reader damaged: a lost opening bracket and a lost comma', () => {
+  const r = parseClues(`Clues across
+10. Rat will give a wide berth to Polynesian dance costume 5,5)
+16. Grandma, I overturned on the busiest street in town! 4,4)
+8. Kill nearly all the poultry, they say - an awful act (6,4,4)
+Clues down
+9. Information centre not in a good state - on a lean. Who to write to? (74)
+11. Plain one (6)`);
+  const a = Object.fromEntries(r.across.map((c) => [c.number, c]));
+  assert.equal(a[10].enumeration, '5,5');
+  assert.equal(a[10].length, 10);
+  assert.equal(a[10].text, 'Rat will give a wide berth to Polynesian dance costume');
+  assert.equal(a[16].enumeration, '4,4');
+  assert.equal(a[8].enumeration, '6,4,4');
+  assert.equal(r.down.find((c) => c.number === 9).enumeration, '7,4');
+  assert.equal(r.down.find((c) => c.number === 9).length, 11);
+  assert.equal(r.down.find((c) => c.number === 11).length, 6);
+  // sensible long words are left alone
+  assert.equal(parseClues('ACROSS\n1 Something long (15)').across[0].length, 15);
+});
+
+test('standard crossword clues: "Clues across" headings, wrapped lines and a list that continues in the next column', () => {
+  const r = parseClues(`Clues across
+1. To deem abnormal is to
+downgrade (6)
+4. Prediction that in a month,
+street will be taken out and
+railway put in (6)
+23. Made careless error:
+cancelled prom (7,3,4)
+Clues down
+1. Renders me tired, making
+points I don't appreciate (7)
+2. These can follow on your
+instruction to take off
+blemishes (5)`);
+  assert.deepEqual(r.across.map((c) => [c.number, c.length]), [[1, 6], [4, 6], [23, 14]]);
+  assert.deepEqual(r.down.map((c) => [c.number, c.length]), [[1, 7], [2, 5]]);
+  assert.equal(r.across[1].text, 'Prediction that in a month, street will be taken out and railway put in');
+});

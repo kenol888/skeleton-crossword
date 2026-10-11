@@ -11,6 +11,9 @@ function fixDigits(s) {
 
 export function normaliseEnumeration(raw) {
   const fixed = fixDigits(raw).replace(/\s+/g, '').replace(/[–.]/g, (m) => (m === '.' ? ',' : '-'));
+  // The comma in "(7,4)" is sometimes lost, leaving "74". No word is that long, so read it as separate
+  // digits (7,4), which is what it nearly always was.
+  if (/^\d{2,3}$/.test(fixed) && Number(fixed) > 30) return fixed.split('').join(',');
   return fixed;
 }
 
@@ -54,7 +57,12 @@ function extractEnum(seg) {
   let last = null;
   let m;
   while ((m = ENUM_RE.exec(seg))) last = m;
-  if (!last) return { text: seg, en: '' };
+  if (!last) {
+    // the opening bracket is sometimes lost: "... costume 5,5)" or "... town! 4,4)"
+    const nm = seg.match(/(?:^|\s)([0-9]+(?:\s*[,\-\u2013]\s*[0-9]+)*)\s*\)\s*$/);
+    if (nm) return { text: seg.slice(0, nm.index).trim(), en: normaliseEnumeration(nm[1]) };
+    return { text: seg, en: '' };
+  }
   const after = seg.slice(last.index + last[0].length).trim();
   const text = (seg.slice(0, last.index) + ' ' + after).trim();
   return { text, en: normaliseEnumeration(last[1]) };

@@ -473,3 +473,15 @@ button { touch-action: manipulation; }
 }
 
 @media (max-width: 640px) { :root { --top-extra: 36px; } }
+
+/* choosing the kind of crossword when importing */
+.kind-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 560px) { .kind-pick { grid-template-columns: 1fr; } }
+.kind-card {
+  display: grid; gap: 6px; align-content: start; text-align: left; padding: 14px 16px; min-height: 104px; border-radius: 14px; cursor: pointer;
+  border: 2px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.kind-card strong { font: 600 18px/1.2 var(--f-display); }
+.kind-card span { font-size: 14px; color: var(--ink-soft); line-height: 1.4; }
+.kind-card.on { border-color: var(--accent); background: var(--word); }
+.kind-card:active { background: var(--surface-2); }

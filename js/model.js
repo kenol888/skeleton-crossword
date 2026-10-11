@@ -26,7 +26,11 @@ export function createCell() {
 }
 
 /** createPuzzle({ rows, cols }) or createPuzzle({ size }) for a square grid. */
-export function createPuzzle({ rows, cols, size, title = 'Untitled', clues, cells, settings, sourceImage = null } = {}) {
+/**
+ * type: 'skeleton' (black squares and most numbers are left for the player to work out) or
+ * 'standard' (the whole grid and every number are printed, with letter counts in the clues).
+ */
+export function createPuzzle({ rows, cols, size, title = 'Untitled', type = 'skeleton', clues, cells, settings, sourceImage = null } = {}) {
   rows = rows || size || 11;
   cols = cols || size || 15;
   const now = Date.now();
@@ -35,6 +39,7 @@ export function createPuzzle({ rows, cols, size, title = 'Untitled', clues, cell
     title,
     createdAt: now,
     updatedAt: now,
+    type: type === 'standard' ? 'standard' : 'skeleton',
     rows,
     cols,
     cells: cells || Array.from({ length: rows * cols }, createCell),
@@ -221,7 +226,7 @@ export function fromJSON(input) {
   const cols = o.cols || o.size;
   if (!rows || !cols) throw new Error('Not a puzzle file');
   if (o.cells.length !== rows * cols) throw new Error('Grid size does not match cell count');
-  const p = createPuzzle({ rows, cols, title: o.title || 'Untitled' });
+  const p = createPuzzle({ rows, cols, title: o.title || 'Untitled', type: o.type });
   p.id = o.id || p.id;
   p.createdAt = o.createdAt || p.createdAt;
   p.updatedAt = o.updatedAt || p.updatedAt;

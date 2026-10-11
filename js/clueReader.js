@@ -1,7 +1,7 @@
 // Finds and reads the Across and Down clue lists on a page picture. Combines the page read
 // (js/ocr.js), the column finder (js/clueFinder.js) and a careful second read of each column.
 import { recognize, recognizeWords } from './ocr.js';
-import { locateClues } from './clueFinder.js';
+import { locateClues, locateStandardClues } from './clueFinder.js';
 import { cropRect } from './imageImport.js';
 import { parseClues } from './clueParser.js';
 
@@ -16,16 +16,48 @@ async function readColumns(canvas, loc, onStatus, toSource) {
   };
 }
 
+async function readStandardColumns(canvas, loc, onStatus, toSource) {
+  const parts = [];
+  const boxes = {};
+  for (let k = 0; k < loc.columns.length; k++) {
+    const c = loc.columns[k];
+    onStatus(loc.columns.length > 1 ? `Reading clue column ${k + 1} of ${loc.columns.length}…` : 'Reading the clues…');
+    const r = await recognize(cropRect(canvas, c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0), { mode: 'text' });
+    parts.push(r.text);
+    boxes['c' + k] = toSource(c);
+  }
+  // The headings ("Clues across", "Clues down") are in the text, and the Across list may run from one
+  // column into the next, so the columns are simply joined in reading order.
+  return { text: parts.join('\n'), boxes };
+}
+
 /**
  * Look over the whole page for the clue lists nearest the grid.
+ * kind 'standard': the clues are in columns below or beside the grid and carry letter counts.
  * grid: { x0, y0, x1, y1 } in page pixels. Resolves { text, boxes } or null if no lists were found.
  * boxes are in page pixels, for showing the user what was read.
  */
-export async function findClues(canvas, grid, onStatus = () => {}) {
+export async function findClues(canvas, grid, onStatus = () => {}, kind = 'skeleton') {
   onStatus('Looking for the clues…');
   const page = await recognizeWords(canvas, { onProgress: (s, p) => onStatus(`Looking for the clues… ${Math.round(p * 100)}%`) });
   const size = { w: canvas.width, h: canvas.height };
   const toSource = (b) => ({ x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0 });
+  if (kind === 'standard') {
+    const std = async (opts) => {
+      const loc = locateStandardClues(page.words, grid, size, opts);
+      if (!loc) return null;
+      const r = await readStandardColumns(canvas, loc, onStatus, toSource);
+      r.missing = missingNumbers(r.text);
+      return r;
+    };
+    let bestStd = await std({});
+    if (bestStd && bestStd.missing > 0) {
+      onStatus('Some clue numbers are missing. Taking a second look…');
+      const alt = await std({ gapFactor: 3.2 });
+      if (alt && alt.missing < bestStd.missing) bestStd = alt;
+    }
+    return bestStd;
+  }
   const attempt = async (opts) => {
     const loc = locateClues(page.words, grid, size, opts);
     if (!loc) return null;
@@ -56,11 +88,18 @@ export function missingNumbers(text) {
  * Read clues from a box the user drew (page pixels). If the box holds both an ACROSS and a
  * DOWN list side by side or stacked, they are separated; otherwise it is read as one list.
  */
-export async function readClueBox(canvas, box, onStatus = () => {}) {
+export async function readClueBox(canvas, box, onStatus = () => {}, kind = 'skeleton') {
   const crop = cropRect(canvas, box.x, box.y, box.w, box.h);
   const k = crop.width / box.w;
   onStatus('Looking at the box…');
   const page = await recognizeWords(crop, { onProgress: (s, p) => onStatus(`Looking at the box… ${Math.round(p * 100)}%`) });
+  if (kind === 'standard') {
+    const std = locateStandardClues(page.words, null, { w: crop.width, h: crop.height });
+    if (std) return readStandardColumns(crop, std, onStatus, (b) => ({ x: box.x + b.x0 / k, y: box.y + b.y0 / k, w: (b.x1 - b.x0) / k, h: (b.y1 - b.y0) / k }));
+    onStatus('Reading the clues…');
+    const one = await recognize(crop, { mode: 'text' });
+    return { text: one.text, boxes: { single: box } };
+  }
   const loc = locateClues(page.words, null, { w: crop.width, h: crop.height });
   if (loc) {
     const toSource = (b) => ({ x: box.x + b.x0 / k, y: box.y + b.y0 / k, w: (b.x1 - b.x0) / k, h: (b.y1 - b.y0) / k });

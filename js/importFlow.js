@@ -1,7 +1,7 @@
 // New-puzzle wizard: photo or PDF -> corners -> check the grid -> clues -> play.
 // "Blank puzzle" skips the first three steps.
 import { h, toast, dialog, inputDialog } from './ui/dom.js';
-import { createCell, createPuzzle, makeClue, parseEnumeration, SYMMETRY } from './model.js';
+import { createCell, createPuzzle, makeClue, parseEnumeration, computeNumbering, SYMMETRY } from './model.js';
 import { parseClues } from './clueParser.js';
 import { recognize, OCR_FAILED } from './ocr.js';
 import {
@@ -9,8 +9,8 @@ import {
 } from './imageImport.js';
 import { findClues, readClueBox } from './clueReader.js';
 
-function dateTitle() {
-  return 'Skeleton ' + new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+function dateTitle(kind = 'skeleton') {
+  return (kind === 'standard' ? 'Crossword ' : 'Skeleton ') + new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 const TOOLS = [
@@ -31,6 +31,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     warped: null,
     rows,
     cols,
+    kind: 'skeleton', // 'skeleton' or 'standard'
     symmetry: 'mirror4',
     tool: 'block',
     cells: Array.from({ length: rows * cols }, () => ({ kind: 'none', value: '', maybe: null })),
@@ -42,7 +43,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     clues: { across: [], down: [] },
     warnings: [],
     boxes: null,
-    title: title || dateTitle(),
+    title: title || '', // empty: named after the kind and the date when the puzzle is made
   };
 
   const names = blank ? ['Clues'] : ['Photo', 'Corners', 'Grid', 'Clues'];
@@ -129,12 +130,42 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         }
       })
     );
+    const kinds = [
+      ['skeleton', 'Skeleton crossword', 'Most black squares and numbers are missing, and you work them out. The clues have no letter counts.'],
+      ['standard', 'Standard crossword', 'The whole grid and its numbers are printed, and each clue ends with its letter count, such as (5) or (3,4).'],
+    ];
+    const kindPick = h('div', { class: 'kind-pick', role: 'radiogroup', 'aria-label': 'Type of crossword' });
+    kinds.forEach(([k, name, desc]) => {
+      const b = h(
+        'button',
+        {
+          type: 'button',
+          class: 'kind-card' + (st.kind === k ? ' on' : ''),
+          role: 'radio',
+          'aria-checked': st.kind === k ? 'true' : 'false',
+          onclick: () => {
+            st.kind = k;
+            st.symmetry = k === 'standard' ? 'rotational' : 'mirror4';
+            st.clueState = 'idle';
+            kindPick.querySelectorAll('.kind-card').forEach((x) => {
+              const on = x === b;
+              x.classList.toggle('on', on);
+              x.setAttribute('aria-checked', on ? 'true' : 'false');
+            });
+          },
+        },
+        h('strong', null, name),
+        h('span', null, desc)
+      );
+      kindPick.append(b);
+    });
     shell(
       1,
       h(
         'div',
         { class: 'panel narrow' },
-        h('h2', null, 'Start from the printed puzzle'),
+        h('h2', null, 'What kind of crossword is it?'),
+        kindPick,
         h('p', null, 'Photograph the whole page flat and in good light, or use a screenshot or PDF of the e-edition.'),
         input,
         zone,
@@ -245,8 +276,8 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     st.cells = a.hints.map((hh) => ({
       kind: hh.block ? 'block' : 'none',
       value: '',
-      maybe: hh.maybeNumber ? 'number' : hh.maybeLetter ? 'letter' : null,
-      both: hh.maybeNumber && hh.maybeLetter,
+      maybe: st.kind === 'standard' ? null : hh.maybeNumber ? 'number' : hh.maybeLetter ? 'letter' : null,
+      both: st.kind === 'standard' ? false : hh.maybeNumber && hh.maybeLetter,
     }));
   }
 
@@ -254,6 +285,9 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
   function stepGrid() {
     const R = st.rows;
     const C = st.cols;
+    const std = st.kind === 'standard';
+    if (std && st.tool === 'number') st.tool = 'block';
+    const tools = std ? TOOLS.filter((t) => t[0] !== 'number') : TOOLS;
     const token = ++st.readToken;
     const cv = greyToCanvas(st.warped.grey, st.warped.W, st.warped.H);
     cv.className = 'warp-canvas';
@@ -277,20 +311,32 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       over.append(b);
       return b;
     });
+    // In a standard crossword every number is printed, and the printing follows a fixed rule from the
+    // black squares, so the numbers are worked out from them (and update as squares are fixed).
+    let nums = [];
+    const derive = () => {
+      nums = std ? computeNumbering({ rows: R, cols: C, cells: st.cells.map((c) => ({ block: c.kind === 'block' })) }).numbers : [];
+    };
+    derive();
     function paintCell(i) {
       const c = st.cells[i];
       const el = cellEls[i];
       const unread = c.kind === 'none' && c.maybe;
-      el.className = 'hcell ' + c.kind + (unread ? ' unread' : '');
-      el.dataset.label = c.kind === 'number' || c.kind === 'letter' ? c.value : unread ? '?' : '';
+      const derived = std && c.kind === 'none' && nums[i] ? nums[i] : 0;
+      el.className = 'hcell ' + (derived ? 'number' : c.kind) + (unread ? ' unread' : '');
+      el.dataset.label = c.kind === 'number' || c.kind === 'letter' ? c.value : unread ? '?' : derived ? String(derived) : '';
       el.title = unread ? 'There is print here that the app could not read' : '';
     }
+    const paintAll = () => {
+      derive();
+      st.cells.forEach((_, i) => paintCell(i));
+    };
     st.cells.forEach((_, i) => paintCell(i));
     function refreshCounts() {
       const b = st.cells.filter((c) => c.kind === 'block').length;
       const n = st.cells.filter((c) => c.kind === 'number').length;
       const l = st.cells.filter((c) => c.kind === 'letter').length;
-      counts.textContent = `${b} black, ${n} numbered, ${l} lettered`;
+      counts.textContent = std ? `${b} black squares, ${nums.filter(Boolean).length} numbers` : `${b} black, ${n} numbered, ${l} lettered`;
     }
     refreshCounts();
 
@@ -332,7 +378,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
           break;
         }
         const v = input.value.trim();
-        if (/^\d{1,3}$/.test(v) && +v > 0) {
+        if (!std && /^\d{1,3}$/.test(v) && +v > 0) {
           c.kind = 'number';
           c.value = String(+v);
           c.maybe = null;
@@ -344,7 +390,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
           c.maybe = null;
           break;
         }
-        message = 'That is not a clue number or a single letter. Try again.';
+        message = std ? 'Type a single letter, or choose Nothing here.' : 'That is not a clue number or a single letter. Try again.';
       }
       paintCell(i);
       refreshCounts();
@@ -366,7 +412,8 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         c.value = '';
         c.maybe = null;
       }
-      paintCell(i);
+      if (std) paintAll(); // fixing a black square changes the numbers after it
+      else paintCell(i);
       refreshCounts();
     }
 
@@ -456,7 +503,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         h('button', { type: 'button', class: 'seg-btn' + (st.symmetry === k ? ' on' : ''), onclick: () => { st.symmetry = k; stepGrid(); } }, label.split(':')[0])
       )
     );
-    const toolBtns = TOOLS.map(([key, label]) => {
+    const toolBtns = tools.map(([key, label]) => {
       const b = h('button', { type: 'button', class: 'seg-btn' + (st.tool === key ? ' on' : ''), onclick: () => setTool(key) }, label);
       b.dataset.tool = key;
       return b;
@@ -464,34 +511,44 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     function setTool(key) {
       st.tool = key;
       toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === key));
-      help.textContent = TOOLS.find((t) => t[0] === key)[2];
+      help.textContent = tools.find((t) => t[0] === key)[2];
     }
-    help.textContent = TOOLS.find((t) => t[0] === st.tool)[2];
+    help.textContent = tools.find((t) => t[0] === st.tool)[2];
 
     shell(
       3,
       h(
         'div',
         { class: 'panel' },
-        h('h2', null, 'Check what I found in the grid'),
+        h('h2', null, std ? 'Check the black squares' : 'Check what I found in the grid'),
         h(
           'ul',
           { class: 'legend' },
-          h('li', null, h('i', { class: 'sw block' }), 'Black square printed in the puzzle'),
-          h('li', null, h('i', { class: 'sw number' }, '7'), 'Clue number I read'),
-          h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Letter I read'),
-          h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read (tap it to type it in)')
+          std
+            ? [
+                h('li', null, h('i', { class: 'sw block' }), 'Black square'),
+                h('li', null, h('i', { class: 'sw number' }, '7'), 'Clue number, worked out from the black squares'),
+              ]
+            : [
+                h('li', null, h('i', { class: 'sw block' }), 'Black square printed in the puzzle'),
+                h('li', null, h('i', { class: 'sw number' }, '7'), 'Clue number I read'),
+                h('li', null, h('i', { class: 'sw letter' }, 'E'), 'Letter I read'),
+                h('li', null, h('i', { class: 'sw unread' }, '?'), 'Print I could not read (tap it to type it in)'),
+              ]
         ),
         status,
         h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Fix a mistake:'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Tool' }, toolBtns), counts),
         h('div', { class: 'row' }, help, h('span', { class: 'grow' }), compareBtn),
         warp,
         h('div', { class: 'size-row' }, stepper('Columns', C, (v) => setDims(R, v)), stepper('Rows', R, (v) => setDims(v, C))),
-        h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
+        std ? null : h('div', { class: 'size-row' }, h('span', { class: 'lbl' }, 'Black squares are symmetric:'), symSeg, h('span', { class: 'muted' }, SYMMETRY[st.symmetry].split(': ')[1] || 'no pattern assumed')),
         nav(btn('‹ Back', () => go(2), 'quiet'), nextBtn)
       )
     );
-    autoRead();
+    if (std) {
+      const b = st.cells.filter((c) => c.kind === 'block').length;
+      status.textContent = `Found ${b} black squares. The numbers are worked out from them, as they are printed. Check both against the picture; tap a square to fix one.`;
+    } else autoRead();
   }
 
   // ---------------------------------------------------------------- 4. clues
@@ -588,7 +645,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         if (drag && drag.w > 30 && drag.h > 30) {
           view.classList.remove('drawing');
           drawBtn.textContent = 'Draw a box round the clues';
-          await runRead(() => readClueBox(st.src, drag, setStatus));
+          await runRead(() => readClueBox(st.src, drag, setStatus, st.kind));
         }
       };
       view.addEventListener('pointerup', end);
@@ -675,7 +732,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     function start() {
       if (!st.clues.across.length && !st.clues.down.length && ta.value.trim()) sortText();
       if (!st.clues.across.length && !st.clues.down.length) {
-        toast('Add the clues first. The app works out the grid from the clue numbers.', 4000);
+        toast(st.kind === 'standard' ? 'Add the clues first.' : 'Add the clues first. The app works out the grid from the clue numbers.', 4000);
         return;
       }
       onDone(buildPuzzle());
@@ -685,7 +742,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       'details',
       { class: 'paste', open: !st.src || st.clueState === 'failed' },
       h('summary', null, 'Paste or type the clues instead'),
-      h('p', { class: 'muted' }, 'On iPad, press and hold the clue text in your picture and choose Copy, then paste here. Put ACROSS and DOWN on their own lines.'),
+      h('p', { class: 'muted' }, st.kind === 'standard' ? 'On iPad, press and hold the clue text in your picture and choose Copy, then paste here. Put "Clues across" and "Clues down" on their own lines.' : 'On iPad, press and hold the clue text in your picture and choose Copy, then paste here. Put ACROSS and DOWN on their own lines.'),
       ta,
       h('div', { class: 'row' }, btn('Sort into Across and Down', sortText, ''))
     );
@@ -696,7 +753,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         'div',
         { class: 'panel wide' },
         h('h2', null, 'Clues'),
-        h('p', null, 'The app works out where the black squares go from the clue numbers, so every number needs to be there. Letter counts such as (5) are optional.'),
+        h('p', null, st.kind === 'standard' ? 'Every clue needs its number and its letter count, such as (5) or (3,4). The grid is already printed, so each clue is matched to its square by its number.' : 'The app works out where the black squares go from the clue numbers, so every number needs to be there. Letter counts such as (5) are optional.'),
         status,
         h('div', { class: 'clues-layout' }, srcPanel, tables),
         paste,
@@ -705,7 +762,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     );
 
     // read the clues automatically the first time we get here
-    if (st.src && st.clueState === 'idle') runRead(() => findClues(st.src, gridRect(), setStatus));
+    if (st.src && st.clueState === 'idle') runRead(() => findClues(st.src, gridRect(), setStatus, st.kind));
     else if (st.clueState === 'reading') setStatus(st.clueStatus);
   }
 
@@ -721,6 +778,12 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       } else if (c.kind === 'number') cells[i].givenNumber = Number(c.value);
       else if (c.kind === 'letter') cells[i].givenLetter = c.value;
     });
+    if (st.kind === 'standard') {
+      // every number is printed in a standard crossword, and follows from the black squares
+      computeNumbering({ rows: R, cols: C, cells }).numbers.forEach((n, i) => {
+        if (n && !cells[i].block) cells[i].givenNumber = n;
+      });
+    }
     const mk = (list) =>
       list
         .filter((c) => c.number > 0)
@@ -729,7 +792,8 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     return createPuzzle({
       rows: R,
       cols: C,
-      title: st.title.trim() || dateTitle(),
+      title: (st.title && st.title.trim()) || dateTitle(st.kind),
+      type: st.kind,
       cells,
       clues: { across: mk(st.clues.across), down: mk(st.clues.down) },
       settings: { symmetry: st.symmetry },

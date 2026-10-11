@@ -239,6 +239,7 @@ export function openPlay(puzzle, { container, onExit }) {
   }
   // Pick the square first, then what to put in it: a letter, a clue number, or a black square.
   function setInput(m) {
+    if (m === 'number' && p.type === 'standard') return;
     finishNumber();
     if (p.cells[S.sel].block) {
       toast('That square is black. Pick a white square first, or remove the black square.');
@@ -254,6 +255,10 @@ export function openPlay(puzzle, { container, onExit }) {
   // or, if it is already black, makes it white again.
   function toggleBlack() {
     finishNumber();
+    if (p.type === 'standard') {
+      toast('This crossword\u2019s black squares are printed, so they stay.');
+      return;
+    }
     const c = p.cells[S.sel];
     if (c.givenBlock) {
       toast('That square is printed in the puzzle, so it stays black.');
@@ -418,7 +423,7 @@ export function openPlay(puzzle, { container, onExit }) {
         S.input = 'letter';
       }
       typeLetter(k.toUpperCase());
-    } else if (/^[0-9]$/.test(k)) {
+    } else if (p.type !== 'standard' && /^[0-9]$/.test(k)) {
       if (S.input !== 'number') {
         finishNumber();
         S.input = 'number';
@@ -579,8 +584,8 @@ export function openPlay(puzzle, { container, onExit }) {
       'div',
       { class: 'settings' },
       themeRow(S.settings),
-      row('set-mirror', 'Mirror black squares for me', 'Turn off to place every mirror square yourself. The mirror squares are ringed in blue either way.', () => S.settings.autoMirror, (v) => { S.settings.autoMirror = v; save(); }),
-      symRow(),
+      p.type === 'standard' ? null : row('set-mirror', 'Mirror black squares for me', 'Turn off to place every mirror square yourself. The mirror squares are ringed in blue either way.', () => S.settings.autoMirror, (v) => { S.settings.autoMirror = v; save(); }),
+      p.type === 'standard' ? null : symRow(),
       row('set-fb', 'Layout feedback', 'Show whether each clue fits the grid. This gives hints about the layout.', () => S.settings.layoutFeedback, (v) => { S.settings.layoutFeedback = v; save(); }),
       row('set-skip', 'Skip filled squares', 'Typing jumps over squares that already have a letter.', () => S.settings.skipFilled, (v) => { S.settings.skipFilled = v; save(); }),
       row('set-down', 'Move solved clues down', 'Crossed-off clues drop to the end of each list.', () => S.settings.moveSolvedDown, (v) => { S.settings.moveSolvedDown = v; save(); }),
@@ -749,9 +754,10 @@ export function openPlay(puzzle, { container, onExit }) {
     toolLetter.classList.toggle('on', !selBlock && S.input === 'letter');
     toolNumber.classList.toggle('on', !selBlock && S.input === 'number');
     toolBlack.classList.toggle('on', selBlock);
+    const standard = p.type === 'standard'; // the whole grid is printed: only letters are entered
     toolLetter.disabled = selBlock;
-    toolNumber.disabled = selBlock;
-    toolBlack.disabled = !!p.cells[S.sel].givenBlock;
+    toolNumber.disabled = standard || selBlock;
+    toolBlack.disabled = standard || !!p.cells[S.sel].givenBlock;
     toolBlack.lastChild.textContent = selBlock ? 'Make white' : 'Black';
     undoBtn.disabled = !S.undo.length;
     redoBtn.disabled = !S.redo.length;

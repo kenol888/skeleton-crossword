@@ -30,7 +30,7 @@ Open <http://localhost:8080> in a browser. This server turns caching off so edit
 Tests for the pure logic (numbering, clue parsing, layout solver, grid detection):
 
 ```bash
-node --test tests/
+node --test
 ```
 
 ## Put it on an iPad
@@ -65,3 +65,7 @@ No build step and no framework: plain ES modules.
 | `version.json`, `js/version.js` | Version number, release time and the list of app files (written by `node tools/stamp.mjs`) |
 
 `samples/sample-skeleton.json` is an invented 15 by 11 puzzle in the Sunday Express format (made-up clues, no letter counts, letters that do not form real crossing answers), there to try the features. `node tools/build-sample.mjs` rebuilds it.
+
+## Standard crosswords
+
+Besides Sunday Express skeletons, the importer reads ordinary numbered crosswords (for example a 15×15 with clues and letter counts). Choose **Standard crossword** on the first import step. The grid, black squares and numbers are read from the picture (numbers are derived from the black squares), clues are read from the columns below or beside the grid, and play uses the same screen with Number and Black disabled. Tightly spaced words in clues can occasionally be joined by the text reader; fix them in the editable clue list.

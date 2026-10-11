@@ -138,3 +138,80 @@ test('a paragraph gap inside a list does not end it, but a banner gap does', () 
   assert.ok(loc.across.y1 > 112 + 19 * 18 + 6, `ran to the last clue (${Math.round(loc.across.y1)})`);
   assert.ok(loc.across.y1 < 560, 'but stopped before the banner');
 });
+
+// ---- standard crosswords: clue lists flow down one column and into the next
+
+import { splitColumns, locateStandardClues } from '../js/clueFinder.js';
+
+function standardPage() {
+  const words = [];
+  const pageGrid = { x0: 27, y0: 85, x1: 735, y1: 790 };
+  // left column: a heading, 24 clue lines (some ending in a letter count), the last ending (10)
+  words.push(...line(['Clues', 'across'], 28, 815, 18));
+  for (let i = 0; i < 24; i++) {
+    const last = i === 23;
+    const ends = last ? '(10)' : i % 3 === 2 ? '(6)' : 'word';
+    words.push(...line([String(i + 1) + '.', 'Some', 'clue', 'text', ends], 28, 845 + i * 26, 14));
+  }
+  // under it, after a gap: a banner and a solution grid of single letters (must be left out)
+  words.push(...line(['Solution', 'No', '1505'], 28, 845 + 23 * 26 + 62, 20));
+  for (let r = 0; r < 12; r++) for (let c = 0; c < 12; c++) words.push({ text: 'ABCDEFGHIJKL'[c], x0: 30 + c * 22, y0: 1700 + r * 24, x1: 44 + c * 22, y1: 1714 + r * 24 });
+  // right column: three across clues, the Down heading, then down clues
+  words.push(...line(['23.', 'Made', 'careless', 'error', '(7,3,4)'], 400, 815, 14));
+  words.push(...line(['24.', 'Tsunamis', 'happening', 'in', '(6)'], 400, 841, 14));
+  words.push(...line(['25.', 'Aspirations', 'to', 'remove', '(2,2,2)'], 400, 867, 14));
+  words.push(...line(['Clues', 'down'], 400, 925, 18));
+  for (let i = 0; i < 30; i++) words.push(...line([String(i + 1) + '.', 'Down', 'clue', 'text', i % 2 ? '(5)' : 'here'], 400, 955 + i * 26, 14));
+  return { words, grid: pageGrid };
+}
+
+test('standard layout: the text below the grid splits into two columns', () => {
+  const { words, grid } = standardPage();
+  const below = words.filter((w) => w.y0 >= grid.y1);
+  const cols = splitColumns(below);
+  assert.equal(cols.length, 2);
+  assert.ok(cols[0].x1 < 400 && cols[1].x0 >= 395);
+});
+
+test('standard layout: columns end at the last clue, leaving out the solution grid under it', () => {
+  const { words, grid } = standardPage();
+  const loc = locateStandardClues(words, grid, { w: 765, h: 2000 });
+  assert.ok(loc);
+  assert.equal(loc.columns.length, 2, 'two columns, left to right');
+  const [left, right] = loc.columns;
+  assert.ok(left.x1 < right.x0, 'the columns do not overlap');
+  const lastClueY = 845 + 23 * 26;
+  assert.ok(left.y1 >= lastClueY + 8, `left column reaches its last clue (${Math.round(left.y1)})`);
+  assert.ok(left.y1 < 845 + 23 * 26 + 55, `but not into the solution banner or grid (${Math.round(left.y1)})`);
+  // the right column: its last clue line ends with (5) at i = 29 (odd), at y = 955 + 29 * 26
+  assert.ok(right.y1 >= 955 + 29 * 26 + 8, `right column reaches its last clue (${Math.round(right.y1)})`);
+  assert.ok(left.y0 <= 820 && right.y0 <= 820, 'both start at the top of the clue area');
+});
+
+test('standard layout: clues beside the grid are found when there is little text below it', () => {
+  const words = [];
+  const grid = { x0: 20, y0: 50, x1: 520, y1: 550 };
+  for (let i = 0; i < 20; i++) words.push(...line([String(i + 1) + '.', 'Clue', 'text', 'here', '(5)'], 560, 60 + i * 24, 14));
+  const loc = locateStandardClues(words, grid, { w: 800, h: 700 });
+  assert.ok(loc);
+  assert.equal(loc.columns.length, 1);
+  assert.ok(loc.columns[0].x0 >= 540);
+});
+
+test('standard layout: messy word boxes do not cut a column short', () => {
+  for (const seed of [11, 12, 13, 14]) {
+    const rnd = seeded(seed);
+    const words = [];
+    words.push(...messyColumn(28, 830, 30, rnd, { slope: 0.02, step: 24 }));
+    words.push(...messyColumn(420, 830, 30, rnd, { slope: 0.02, step: 24 }));
+    // make every line end with a count so trailing trimming has something to find
+    const loc = locateStandardClues(words.map((w, i) => (w.text === 'here' ? { ...w, text: '(5)' } : w)), { x0: 0, y0: 0, x1: 765, y1: 800 }, { w: 765, h: 1700 });
+    assert.ok(loc, `seed ${seed}`);
+    assert.equal(loc.columns.length, 2, `seed ${seed}: columns`);
+    for (const c of loc.columns) assert.ok(c.y1 >= 830 + 29 * 24 + 8, `seed ${seed}: column reaches the end (${Math.round(c.y1)})`);
+  }
+});
+
+test('standard layout: nothing to find without enough text', () => {
+  assert.equal(locateStandardClues(column(900, 100, 2), { x0: 0, y0: 0, x1: 500, y1: 50 }, { w: 1300, h: 900 }), null);
+});

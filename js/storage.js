@@ -89,7 +89,7 @@ export function savePuzzle(p) {
   p.updatedAt = Date.now();
   const res = rawSet(PUZZLE_PREFIX + p.id, JSON.stringify({ version: 1, ...p }));
   const idx = loadIndex().filter((e) => e.id !== p.id);
-  idx.push({ id: p.id, title: p.title, updatedAt: p.updatedAt, createdAt: p.createdAt, rows: p.rows, cols: p.cols, progress: progress(p), thumb: thumbOf(p) });
+  idx.push({ id: p.id, title: p.title, updatedAt: p.updatedAt, createdAt: p.createdAt, rows: p.rows, cols: p.cols, progress: progress(p), thumb: thumbOf(p), type: p.type || 'skeleton' });
   saveIndex(idx);
   return res;
 }

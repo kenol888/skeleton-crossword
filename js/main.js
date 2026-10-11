@@ -211,7 +211,7 @@ function card(entry) {
         'span',
         { class: 'card-body' },
         h('span', { class: 'card-title' }, entry.title),
-        h('span', { class: 'card-meta' }, `${cols} × ${rows} · ${when}`),
+        h('span', { class: 'card-meta' }, `${cols} × ${rows} · ${when}${entry.type === 'standard' ? ' \u00B7 Standard' : ''}`),
         h('span', { class: 'bar', role: 'img', 'aria-label': pct + ' percent filled' }, h('span', { class: 'bar-fill', style: `width:${pct}%` })),
         h('span', { class: 'card-pct' }, pct ? pct + '% filled' : 'Not started')
       )

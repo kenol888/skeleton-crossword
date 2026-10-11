@@ -5,7 +5,7 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 ## Commands
 
 - Serve locally: `python tools/serve.py 8080`, then open `http://localhost:8080/?nosw`. That server sends `Cache-Control: no-store`; the `?nosw` flag skips the service worker and clears its cache. You need both while editing, otherwise the browser mixes old and new modules and the page comes up blank. If it still does, refresh each file with `fetch(url, { cache: 'reload' })` and reload.
-- Tests: `node --test tests/` (Node 20, no install step, no dependencies).
+- Tests: `node --test` (Node 20 or newer, no install step, no dependencies; give it no folder argument, which newer Node versions reject).
 - Regenerate icons: `python tools/make-icons.py`.
 - Rebuild the sample puzzle: `node tools/build-sample.mjs` (writes `samples/sample-skeleton.json`; it checks that the intended layout is among the solver's solutions).
 
@@ -44,3 +44,7 @@ A static, no-build web app (PWA) for solving Sunday Express style skeleton cross
 ## Deployment
 
 Run `node tools/stamp.mjs`, commit, then push. The site is the repository root, served as-is by GitHub Pages from the `main` branch. There is no build step, so every path must be relative (no leading `/`) so it works under `/<repo-name>/`.
+
+## Puzzle types
+
+`puzzle.type` is `'skeleton'` (default) or `'standard'`. Standard puzzles derive `givenNumber` via `computeNumbering`, find clue columns with `locateStandardClues` (js/clueFinder.js), read them in `js/clueReader.js` (`kind` argument) and disable Number/Black tools and mirror settings in `js/play.js`.

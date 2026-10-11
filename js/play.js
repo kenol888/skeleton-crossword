@@ -8,6 +8,7 @@ import { createKeyboard } from './ui/keyboard.js';
 import { openWordFinder } from './ui/wordFinder.js';
 import { icon } from './ui/icons.js';
 import { themeRow } from './theme.js';
+import { watchSelection, showDefinition, cleanWord } from './define.js';
 
 let closeCurrent = null;
 
@@ -602,8 +603,25 @@ export function openPlay(puzzle, { container, onExit }) {
       scheduleSave();
     }
   }
+  // the selected word in a clue, else the letters of the current answer, else ask
+  async function lookUp() {
+    let w = cleanWord(window.getSelection ? window.getSelection().toString() : '');
+    if (!w) {
+      const slot = currentSlot();
+      const letters = slot ? slot.cells.map((i) => (p.cells[i].letter && !p.cells[i].pencil ? p.cells[i].letter : '?')).join('') : '';
+      if (letters && !letters.includes('?')) w = cleanWord(letters);
+    }
+    if (!w) {
+      const typed = await inputDialog('Look up a word', 'Word', '', { okLabel: 'Look up' });
+      if (typed == null) return;
+      w = typed;
+    }
+    showDefinition(w);
+  }
+
   function toolsMenu() {
     actionSheet('Tools', [
+      { label: 'Look up a word', hint: 'A dictionary definition of a word from a clue or your answer', run: lookUp },
       { label: 'Word finder', hint: 'Fill in a pattern like C?T?? or find anagrams', run: wordFinder },
       { label: 'Show original photo', hint: 'See the printed puzzle', run: showOriginal },
       { label: 'Rename puzzle', run: renamePuzzle },
@@ -680,6 +698,7 @@ export function openPlay(puzzle, { container, onExit }) {
   root.style.setProperty('--rows', p.rows);
   container.textContent = '';
   container.append(root);
+  const unwatch = watchSelection(root);
 
   function render() {
     const kbMode = S.settings.keyboard;
@@ -781,6 +800,7 @@ export function openPlay(puzzle, { container, onExit }) {
   function cleanup() {
     try { finishNumber(); } catch (e) { /* nothing to finish */ }
     clearInterval(timerId);
+    unwatch();
     document.removeEventListener('keydown', onKeyDown);
     document.removeEventListener('visibilitychange', onVisibility);
     window.removeEventListener('pagehide', flushSave);

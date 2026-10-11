@@ -1,6 +1,6 @@
 {
-  "version": 13,
-  "built": "2026-10-11T20:49:06.144Z",
+  "version": 14,
+  "built": "2026-10-11T20:52:56.237Z",
   "files": [
     "css/styles.css",
     "icons/apple-touch-icon.png",
@@ -10,6 +10,7 @@
     "js/clueFinder.js",
     "js/clueParser.js",
     "js/clueReader.js",
+    "js/define.js",
     "js/gridDetect.js",
     "js/homeArt.js",
     "js/imageImport.js",

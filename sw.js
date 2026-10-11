@@ -1,6 +1,6 @@
 // Offline support: the app files are stored when this worker installs, then served from the
 // store and refreshed in the background. The CACHE name is written by tools/stamp.mjs.
-const CACHE = 'skeleton-v13';
+const CACHE = 'skeleton-v14';
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com', 'tessdata.projectnaptha.com'];
 
 self.addEventListener('install', (e) => {

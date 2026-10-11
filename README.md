@@ -69,3 +69,7 @@ No build step and no framework: plain ES modules.
 ## Standard crosswords
 
 Besides Sunday Express skeletons, the importer reads ordinary numbered crosswords (for example a 15×15 with clues and letter counts). Choose **Standard crossword** on the first import step. The grid, black squares and numbers are read from the picture (numbers are derived from the black squares), clues are read from the columns below or beside the grid, and play uses the same screen with Number and Black disabled. Tightly spaced words in clues can occasionally be joined by the text reader; fix them in the editable clue list.
+
+## Dictionary look-up
+
+Select a word in a clue and tap the **Define** chip, or use Tools → **Look up a word** (it uses the selected word, else the current answer once it is filled, else asks). Definitions come from Wiktionary (dictionaryapi.dev as a back-up) and need a connection; only the word is sent.

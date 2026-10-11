@@ -595,6 +595,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
     // ---- the picture, with boxes showing what was read
     let srcPanel = null;
     let view = null;
+    let inner = null; // sized to the picture, so box percentages match the picture and not the scrolling frame
     let drawBtn = null;
     const boxEls = [];
     function showBoxes() {
@@ -609,7 +610,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         el.style.top = (b.y / cv.height) * 100 + '%';
         el.style.width = (b.w / cv.width) * 100 + '%';
         el.style.height = (b.h / cv.height) * 100 + '%';
-        view.append(el);
+        inner.append(el);
         boxEls.push(el);
       }
     }
@@ -618,7 +619,8 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
       cv.width = st.src.width;
       cv.height = st.src.height;
       cv.getContext('2d').drawImage(st.src, 0, 0);
-      view = h('div', { class: 'src-view' }, cv);
+      inner = h('div', { class: 'src-inner' }, cv);
+      view = h('div', { class: 'src-view' }, inner);
       let start = null;
       let drag = null;
       const dragEl = h('div', { class: 'selbox draft' });
@@ -638,7 +640,7 @@ export function startImport({ container, blank = false, rows = 11, cols = 15, ti
         view.setPointerCapture(e.pointerId);
         start = pos(e);
         drag = { x: start[0], y: start[1], w: 0, h: 0 };
-        view.append(dragEl);
+        inner.append(dragEl);
         showDrag();
       });
       view.addEventListener('pointermove', (e) => {

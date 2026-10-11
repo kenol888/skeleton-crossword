@@ -296,6 +296,7 @@ button { touch-action: manipulation; }
 .src-panel h3 { font: 600 18px/1.2 var(--f-display); }
 .src-view { position: relative; max-height: 52dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
 .src-view.drawing { touch-action: none; cursor: crosshair; overflow: hidden; outline: 3px solid var(--mark); }
+.src-inner { position: relative; }
 .src-canvas { display: block; width: 100%; height: auto; }
 .selbox { position: absolute; border: 2px solid var(--mark); background: rgba(36, 104, 216, 0.14); pointer-events: none; }
 .selbox span { position: absolute; top: -2px; left: -2px; padding: 1px 7px; background: var(--mark); color: var(--mark-ink); font: 600 11px/1.5 var(--f-ui); }
